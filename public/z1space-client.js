@@ -46,7 +46,7 @@
     state.name = user.fullname || state.name;
     state.zhihuUser = user;
     if (authSession?.userData) state.zhihuUserData = authSession.userData;
-    if (state.profileSource !== 'manual') state.impressions = zhihuImpressions(user, state.zhihuUserData);
+    if (state.profileSource !== 'manual' && !state.interview?.complete) state.impressions = zhihuImpressions(user, state.zhihuUserData);
     state.profileSource = 'zhihu';
     if (state.step === 'auth') state.step = 'impressions';
     persist();
