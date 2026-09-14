@@ -9,6 +9,39 @@
   let authSession = null;
   let stayOnAuth = false;
   const sameZhihuUser = (snapshot, user) => Boolean(snapshot?.zhihuUser?.id && user?.id && snapshot.zhihuUser.id === user.id);
+  const uniqueIds = values => [...new Set((values || []).filter(value => typeof value === 'string' && value))];
+  function mergeCollection(target, incoming) {
+    const positions = new Map(target.map((item, index) => [item.id, index]));
+    for (const item of incoming) {
+      const index = positions.get(item.id);
+      if (index === undefined) { positions.set(item.id, target.length); target.push(item); }
+      else target[index] = { ...target[index], ...item };
+    }
+  }
+  function mergeServerRunData(run) {
+    if (!run || typeof run !== 'object') return;
+    const incomingPeople = Object.values(run.people || {}).filter(person => person && typeof person.id === 'string' && typeof person.name === 'string').map(person => ({
+      ...person,
+      initial: person.initial || String(person.name).slice(0, 1),
+      color: person.color || 'violet',
+      contentCount: Number.isFinite(Number(person.contentCount)) ? Number(person.contentCount) : 0,
+      source: person.source || (person.url ? 'zhihu' : 'demo')
+    }));
+    const incomingPosts = Object.values(run.posts || {}).filter(post => post && typeof post.id === 'string' && typeof post.person === 'string' && typeof post.title === 'string').map(post => ({
+      ...post,
+      text: post.text || post.title,
+      full: post.full || post.text || post.title,
+      author: post.author || '',
+      source: post.source || (post.url ? 'zhihu' : 'demo')
+    }));
+    mergeCollection(people, incomingPeople);
+    mergeCollection(posts, incomingPosts);
+    state.people = { ...(state.people || {}), ...Object.fromEntries(incomingPeople.map(person => [person.id, person])) };
+    state.posts = { ...(state.posts || {}), ...Object.fromEntries(incomingPosts.map(post => [post.id, post])) };
+    state.discoverIds = uniqueIds([...(state.discoverIds || []), ...(run.matches || [])]);
+    state.contentIds = uniqueIds([...(state.contentIds || []), ...(run.contentMatches || [])]);
+    state.feedIds = uniqueIds([...(state.feedIds || []), ...(run.feedIds || run.matches || [])]);
+  }
   async function loadAuthSession() {
     try { const response = await fetch('/api/auth/session', { credentials: 'same-origin' }); authSession = await response.json(); return authSession; } catch { authSession = { mode: 'demo', authenticated: false, oauthConfigured: false }; return authSession; }
   }
@@ -18,6 +51,7 @@
     const userData = authSession?.userData || remote.zhihuUserData;
     const changed = state.name !== (user.fullname || state.name) || state.zhihuUser?.id !== user.id || state.zhihuUserData !== userData;
     state = { ...state, ...remote, name: user.fullname || remote.name, zhihuUser: user, zhihuUserData: userData };
+    mergeServerRunData({ people: remote.people, posts: remote.posts, matches: remote.discoverIds, contentMatches: remote.contentIds, feedIds: remote.feedIds });
     if (migrateZhihuProfile() || changed) persist();
     render();
     return true;
@@ -115,7 +149,16 @@
   };
   const profileText = skill => skill.profileDescription || (skill.goal ? `正在通过 Agent：${skill.goal.replace(/[。.!！?？]+$/, '')}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`);
   const originalSaveSkill = saveSkill;
-  saveSkill = function (form) { originalSaveSkill(form); const last = state.skills[state.skills.length - 1]; if (last) { last.profileTitle = last.name; last.profileDescription = profileText(last); persist(); } };
+  saveSkill = function (form) {
+    const existingIds = new Set(state.skills.map(skill => skill.id));
+    originalSaveSkill(form);
+    const last = state.skills[state.skills.length - 1];
+    if (!last) return;
+    last.profileTitle = last.name;
+    last.profileDescription = profileText(last);
+    persist();
+    if (!existingIds.has(last.id)) void stateSaveQueue.then(() => runFromServer(last.id));
+  };
   function profileContentCount(type) {
     const items = state.zhihuUserData?.contentItems || [];
     return items.filter(item => item.contentType === type).length;
@@ -400,8 +443,15 @@
     const skill = state.skills.find(s => s.id === id);
     if (!skill) return;
     if (!skill.enabled) return toast('请先启用这个 Skill。');
-    const response = await fetch('/api/runs', { method: 'POST', headers, body: JSON.stringify({ skill }) });
-    const run = await response.json().catch(() => ({}));
+    let response;
+    let run;
+    try {
+      response = await fetch('/api/runs', { method: 'POST', headers, body: JSON.stringify({ skill }) });
+      run = await response.json().catch(() => ({}));
+    } catch {
+      toast('Skill 启动失败，请检查网络后重试。');
+      return;
+    }
     if (!response.ok || !run.id) {
       const messages = {
         PROFILE_NOT_CONFIRMED: '请先保存并确认你的画像，再运行 Skill。',
@@ -411,19 +461,36 @@
       toast(messages[run.error] || 'Skill 启动失败，请刷新页面后重试。');
       return;
     }
+    mergeServerRunData(run);
     state.agentRuns = [...(state.agentRuns || []), { ...run, skillId: id }];
     persist();
     go('messages');
     renderWorkspace();
     const poll = async () => {
-      const current = await fetch(`/api/runs/${run.id}`, { headers }).then(r => r.json());
-      state.agentRuns[state.agentRuns.length - 1] = { ...current, skillId: id };
-      state.discoverIds = current.matches || state.discoverIds;
+      let currentResponse;
+      let current;
+      try {
+        currentResponse = await fetch(`/api/runs/${run.id}`, { headers });
+        current = await currentResponse.json().catch(() => ({}));
+      } catch {
+        toast('Skill 状态获取失败，请刷新页面后重试。');
+        return;
+      }
+      if (!currentResponse.ok || !current?.id) {
+        toast('Skill 状态获取失败，请刷新页面后重试。');
+        return;
+      }
+      mergeServerRunData(current);
+      const runIndex = state.agentRuns.findIndex(item => item.id === run.id);
+      const next = { ...current, skillId: id };
+      if (runIndex === -1) state.agentRuns = [...(state.agentRuns || []), next];
+      else state.agentRuns[runIndex] = next;
       persist();
       if (currentView === 'messages' && !activeAgentPersonId) renderWorkspace();
-      if (current.status === 'running') setTimeout(poll, 650); else if (current.status === 'failed') toast(current.llmError || current.timeline?.[current.timeline.length - 1]?.text || 'Skill 执行失败，请重试。');
+      if (current.status === 'running') setTimeout(poll, 650);
+      else if (current.status === 'failed') toast(current.llmError || current.timeline?.[current.timeline.length - 1]?.text || 'Skill 执行失败，请重试。');
     };
-    poll();
+    void poll();
   }
   runSkill = runFromServer;
 
@@ -488,6 +555,23 @@
     history.replaceState(null, '', location.pathname);
     render();
   }
+  async function deleteAccount() {
+    if (!window.confirm('注销账号会清除你在 Z1Space 的画像、Skills、关注、收藏和聊天记录，并从头开始初始化画像。确定继续吗？')) return;
+    const button = document.querySelector('[data-action="delete-account"]');
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch('/auth/delete-account', { method: 'POST', credentials: 'same-origin' });
+      if (!response.ok) throw new Error('DELETE_ACCOUNT_FAILED');
+    } catch {
+      if (button) button.disabled = false;
+      toast('注销账号失败，请稍后重试。');
+      return;
+    }
+    localStorage.removeItem('z1space-prototype-v1');
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem('z1space-demo-user');
+    location.replace(location.pathname);
+  }
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-action]');
     const action = target?.dataset.action;
@@ -503,6 +587,10 @@
     }
     if (action === 'logout') {
       logout();
+      return;
+    }
+    if (action === 'delete-account') {
+      deleteAccount();
       return;
     }
     if (!event.target.closest('.account-menu')) closeAccountMenu();

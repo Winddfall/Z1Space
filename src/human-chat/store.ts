@@ -46,6 +46,16 @@ export class HumanChatStore {
     if (changed) void this.persist();
   }
 
+  async deleteForUsers(userIds: readonly string[]) {
+    const ids = new Set(userIds);
+    const invitations = this.data.invitations.filter(invite => !ids.has(invite.sender.id) && !ids.has(invite.recipient?.id || ''));
+    const conversations = this.data.conversations.filter(conversation => !conversation.memberIds.some(id => ids.has(id)));
+    if (invitations.length === this.data.invitations.length && conversations.length === this.data.conversations.length) return;
+    this.data.invitations = invitations;
+    this.data.conversations = conversations;
+    await this.persist();
+  }
+
   overview(viewer: HumanUser) {
     this.expire();
     const invitations = this.data.invitations.filter(i => i.sender.id === viewer.id || i.recipient?.id === viewer.id).map(i => publicInvitation(i, viewer.id));
