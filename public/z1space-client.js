@@ -510,6 +510,8 @@
     }).catch(() => {});
   }
 
+
+
   /* F05 真人聊天：服务端持久化的邀请、会话和消息。与 Agent 对话保持独立。 */
   const humanDemoUser = new URLSearchParams(location.search).get('demoUser') || localStorage.getItem('z1space-demo-user') || 'a';
   localStorage.setItem('z1space-demo-user', humanDemoUser);
