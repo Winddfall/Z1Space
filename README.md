@@ -1,5 +1,7 @@
 <div align="center">
 
+![Z1Space 项目图标](./public/assets/z1space-icon.png)
+
 # Z1Space
 
 ### 让 Agent 帮你发现同路人，再把连接交回真人
