@@ -37,6 +37,7 @@ const zhihuOAuth = readZhihuOAuthConfig();
 const humanChatStore = new HumanChatStore(join(dataDir, 'human-chats.json'));
 await humanChatStore.load();
 const recommendationSnapshots = new Map<string, RecommendationSnapshot>();
+const maxRecommendationSnapshotsPerOwner = 100;
 const a2aSessions = new Map<string, A2ASession>();
 const a2aIdempotency = new Map<string, string>();
 
@@ -78,7 +79,7 @@ function trigger(type: TriggerEvent['type'], ownerId: string, payload: Record<st
 function snapshotFor(state: AppState, ownerId: string) { try { return buildAgentContextSnapshot(state, ownerId); } catch { return null; } }
 function routeError(res: ServerResponse, plan: { accepted: false; code: string }) { const status = plan.code === 'PROFILE_NOT_CONFIRMED' || plan.code === 'SKILL_DISABLED' ? 409 : 400; return json(res, status, { error: plan.code }); }
 function recommendationKey(ownerId: string, recommendationId: string) { return `${ownerId}:${recommendationId}`; }
-function saveRecommendationSnapshots(ownerId: string, query: string, profileVersion: number, recommendations: readonly Recommendation[]) { return recommendations.map(recommendation => { const stored = Object.freeze({ ...recommendation, id: randomUUID() }); recommendationSnapshots.set(recommendationKey(ownerId, stored.id), Object.freeze({ recommendationId: stored.id, ownerId, candidateId: stored.targetId, targetType: stored.targetType, query, profileVersion, verdict: stored.verdict, a2aEligible: stored.a2aEligible, a2aReasons: Object.freeze([...stored.a2aReasons]), evidenceRefs: Object.freeze([...stored.evidenceRefs]), createdAt: new Date().toISOString() })); return stored; }); }
+function saveRecommendationSnapshots(ownerId: string, query: string, profileVersion: number, recommendations: readonly Recommendation[]) { return recommendations.map(recommendation => { const stored = Object.freeze({ ...recommendation, id: randomUUID() }); recommendationSnapshots.set(recommendationKey(ownerId, stored.id), Object.freeze({ recommendationId: stored.id, ownerId, candidateId: stored.targetId, targetType: stored.targetType, query, profileVersion, verdict: stored.verdict, a2aEligible: stored.a2aEligible, a2aReasons: Object.freeze([...stored.a2aReasons]), evidenceRefs: Object.freeze([...stored.evidenceRefs]), createdAt: new Date().toISOString() })); const ownerPrefix = `${ownerId}:`; while ([...recommendationSnapshots.keys()].filter(key => key.startsWith(ownerPrefix)).length > maxRecommendationSnapshotsPerOwner) recommendationSnapshots.delete([...recommendationSnapshots.keys()].find(key => key.startsWith(ownerPrefix))!); return stored; }); }
 
 const deepseekBaseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';

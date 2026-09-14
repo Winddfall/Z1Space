@@ -96,7 +96,9 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(duplicateA2AResponse.status, 202);
     assert.equal((await duplicateA2AResponse.json() as { id: string }).id, createdA2A.id);
 
-    const concurrentBodies = await Promise.all([1, 2].map(() => fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'concurrent-a2a' }) }).then(response => response.json() as Promise<{ id: string }>)));
+    const concurrentResponses = await Promise.all([1, 2].map(() => fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'concurrent-a2a' }) })));
+    assert.deepEqual(concurrentResponses.map(response => response.status), [202, 202]);
+    const concurrentBodies = await Promise.all(concurrentResponses.map(response => response.json() as Promise<{ id: string }>));
     assert.equal(concurrentBodies[0].id, concurrentBodies[1].id);
 
     let completedA2A: { status: string; turns: unknown[]; observation?: { verdict: string; reason: string; evidenceRefs: string[] }; f05Handoff?: unknown } | undefined;
@@ -177,6 +179,11 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     const staleRecommendation = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'stale-profile' }) });
     assert.equal(staleRecommendation.status, 409);
     assert.deepEqual(await staleRecommendation.json(), { error: 'PROFILE_VERSION_CHANGED' });
+
+    await Promise.all(Array.from({ length: 34 }, () => fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers })));
+    const expiredRecommendation = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'evicted-snapshot' }) });
+    assert.equal(expiredRecommendation.status, 404);
+    assert.deepEqual(await expiredRecommendation.json(), { error: 'RECOMMENDATION_NOT_FOUND' });
   } finally {
     child.kill();
     await new Promise(resolve => child.once('exit', resolve));
