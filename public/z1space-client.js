@@ -104,6 +104,13 @@
   persist = function () {
     originalPersist();
     const snapshot = JSON.parse(JSON.stringify(state));
+    // The API uses this server-side confirmation marker to authorize Skill runs.
+    // Older local sessions only had step='done', so backfill the marker when the
+    // profile is complete instead of making an already confirmed user redo onboarding.
+    if (snapshot.step === 'done' && Array.isArray(snapshot.impressions) && snapshot.impressions.length === 3) {
+      snapshot.profileVersion = Number.isInteger(snapshot.profileVersion) && snapshot.profileVersion > 0 ? snapshot.profileVersion : 1;
+      snapshot.profileConfirmedAt = snapshot.profileConfirmedAt || new Date().toISOString();
+    }
     stateSaveQueue = stateSaveQueue.then(() => saveState(snapshot));
   };
   const profileText = skill => skill.profileDescription || (skill.goal ? `正在通过 Agent：${skill.goal.replace(/[。.!！?？]+$/, '')}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`);
@@ -394,7 +401,16 @@
     if (!skill) return;
     if (!skill.enabled) return toast('请先启用这个 Skill。');
     const response = await fetch('/api/runs', { method: 'POST', headers, body: JSON.stringify({ skill }) });
-    const run = await response.json();
+    const run = await response.json().catch(() => ({}));
+    if (!response.ok || !run.id) {
+      const messages = {
+        PROFILE_NOT_CONFIRMED: '请先保存并确认你的画像，再运行 Skill。',
+        SKILL_DISABLED: '请先启用这个 Skill。',
+        SKILL_NOT_FOUND: '这个 Skill 已不存在，请刷新页面后重试。'
+      };
+      toast(messages[run.error] || 'Skill 启动失败，请刷新页面后重试。');
+      return;
+    }
     state.agentRuns = [...(state.agentRuns || []), { ...run, skillId: id }];
     persist();
     go('messages');
