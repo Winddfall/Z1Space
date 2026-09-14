@@ -70,7 +70,7 @@ export function recallPeople(candidates: readonly PeopleCandidate[], query: stri
       const profileEvidence = evidence(profile, queryTerms);
       const candidateEvidence = Object.freeze({ sourceType: 'candidate' as const, sourceId: candidate.id, excerpt: `${candidate.role}；${candidate.bio}`.slice(0, 80), quality: 'self_reported' as const });
       const divergenceSignals = /不同|分歧|碰撞|取舍|争议|反对/.test(query) && /还是|取舍|不同/.test(candidate.topic || '') ? [candidate.topic || ''] : [];
-      return recommendation('person', candidate.id, query, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')}`, candidate.tags, [candidate.bio], divergenceSignals, profile, [...profileEvidence, candidateEvidence]);
+      return recommendation('person', candidate.id, query, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')}`, candidate.tags, [candidate.role, candidate.bio], divergenceSignals, profile, [...profileEvidence, candidateEvidence]);
     }))
   });
 }

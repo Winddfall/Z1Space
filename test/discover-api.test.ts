@@ -53,7 +53,7 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
 
     const peopleResponse = await fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers });
     assert.equal(peopleResponse.status, 200);
-    const people = await peopleResponse.json() as { target: string; candidates: { id: string }[]; recommendations: { targetId: string; reason: string; metrics: Record<string, number>; verdict: string; evidenceRefs: unknown[]; a2aEligible: boolean; a2aReasons: string[] }[] };
+    const people = await peopleResponse.json() as { target: string; candidates: { id: string }[]; recommendations: { id: string; targetId: string; reason: string; metrics: Record<string, number>; verdict: string; evidenceRefs: unknown[]; a2aEligible: boolean; a2aReasons: string[] }[] };
     assert.equal(people.target, 'people');
     assert.deepEqual(people.candidates.map(candidate => candidate.id), ['chen', 'xia', 'zhou']);
     assert.equal(people.recommendations.length, 3);
@@ -68,9 +68,59 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
 
     const contentResponse = await fetch(`${baseUrl}/api/discover/content?q=${encodeURIComponent('知识管理')}`, { headers });
     assert.equal(contentResponse.status, 200);
-    const content = await contentResponse.json() as { candidates: { id: string }[]; recommendations: { evidenceRefs: { sourceType: string }[] }[] };
+    const content = await contentResponse.json() as { candidates: { id: string }[]; recommendations: { id: string; evidenceRefs: { sourceType: string }[] }[] };
     assert.deepEqual(content.candidates.map(candidate => candidate.id), ['p5']);
     assert.deepEqual(content.recommendations[0].evidenceRefs.map(item => item.sourceType), ['content']);
+
+    const eligible = people.recommendations.find(item => item.a2aEligible);
+    assert.ok(eligible);
+
+    const repeatedDiscoverResponse = await fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers });
+    const repeatedDiscover = await repeatedDiscoverResponse.json() as { recommendations: { id: string; targetId: string }[] };
+    const repeatedCandidate = repeatedDiscover.recommendations.find(item => item.targetId === eligible.targetId);
+    assert.ok(repeatedCandidate);
+    assert.notEqual(repeatedCandidate.id, eligible.id);
+
+    const otherSaved = await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers: baseHeaders, body: JSON.stringify(goldenProfileState) });
+    const otherCookie = otherSaved.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(otherCookie);
+    const otherHeaders = { ...baseHeaders, cookie: otherCookie };
+    assert.equal((await fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill`, { headers: otherHeaders })).status, 200);
+
+    const a2aResponse = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'golden-a2a' }) });
+    assert.equal(a2aResponse.status, 202);
+    const createdA2A = await a2aResponse.json() as { id: string; status: string };
+    assert.ok(createdA2A.id);
+
+    const duplicateA2AResponse = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'golden-a2a' }) });
+    assert.equal(duplicateA2AResponse.status, 202);
+    assert.equal((await duplicateA2AResponse.json() as { id: string }).id, createdA2A.id);
+
+    const concurrentResponses = await Promise.all([1, 2].map(() => fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'concurrent-a2a' }) })));
+    assert.deepEqual(concurrentResponses.map(response => response.status), [202, 202]);
+    const concurrentBodies = await Promise.all(concurrentResponses.map(response => response.json() as Promise<{ id: string }>));
+    assert.equal(concurrentBodies[0].id, concurrentBodies[1].id);
+
+    let completedA2A: { status: string; turns: unknown[]; observation?: { verdict: string; reason: string; evidenceRefs: string[] }; f05Handoff?: unknown } | undefined;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/a2a-sessions/${createdA2A.id}`, { headers });
+      completedA2A = await response.json() as typeof completedA2A;
+      if (completedA2A?.status === 'completed') break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(completedA2A?.status, 'completed');
+    assert.equal(completedA2A?.turns.length, 6);
+    assert.equal(completedA2A?.observation?.verdict, 'proceed');
+    assert.ok(completedA2A?.observation?.reason);
+    assert.ok(completedA2A?.observation?.evidenceRefs.length);
+    assert.ok(completedA2A?.f05Handoff);
+
+    const unauthorizedA2A = await fetch(`${baseUrl}/api/a2a-sessions/${createdA2A.id}`, { headers: baseHeaders });
+    assert.equal(unauthorizedA2A.status, 404);
+
+    const nonEligibleA2A = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: content.recommendations[0].id, idempotencyKey: 'content-a2a' }) });
+    assert.equal(nonEligibleA2A.status, 409);
+    assert.deepEqual(await nonEligibleA2A.json(), { error: 'A2A_NOT_ELIGIBLE' });
 
     const emptyResponse = await fetch(`${baseUrl}/api/discover/people?q=${encodeURIComponent('量子农业')}`, { headers });
     assert.equal(emptyResponse.status, 200);
@@ -120,6 +170,45 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(progressed.stage, 3);
     assert.ok(progressed.timeline.some(item => item.text.includes('理解你的目标')));
     assert.ok(progressed.timeline.some(item => item.text.includes('有结果了')));
+
+    const changedProfile = { ...goldenProfileState, profileVersion: 4 };
+    assert.equal((await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers, body: JSON.stringify(changedProfile) })).status, 200);
+    const repeatedAfterProfileChange = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'golden-a2a' }) });
+    assert.equal(repeatedAfterProfileChange.status, 202);
+    assert.equal((await repeatedAfterProfileChange.json() as { id: string }).id, createdA2A.id);
+    const staleRecommendation = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'stale-profile' }) });
+    assert.equal(staleRecommendation.status, 409);
+    assert.deepEqual(await staleRecommendation.json(), { error: 'PROFILE_VERSION_CHANGED' });
+
+    const churnResponses = await Promise.all(Array.from({ length: 34 }, () => fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers })));
+    const expiredRecommendation = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'evicted-snapshot' }) });
+    assert.equal(expiredRecommendation.status, 404);
+    assert.deepEqual(await expiredRecommendation.json(), { error: 'RECOMMENDATION_NOT_FOUND' });
+
+    const retryAfterSnapshotEviction = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'golden-a2a' }) });
+    assert.equal(retryAfterSnapshotEviction.status, 202);
+    assert.equal((await retryAfterSnapshotEviction.json() as { id: string }).id, createdA2A.id);
+
+    const oversizedRequest = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'x'.repeat(2_100) }) });
+    assert.equal(oversizedRequest.status, 413);
+    assert.deepEqual(await oversizedRequest.json(), { error: 'REQUEST_TOO_LARGE' });
+
+    const latestDiscover = await churnResponses.at(-1)!.json() as { recommendations: { id: string; a2aEligible: boolean }[] };
+    const retainedRecommendation = latestDiscover.recommendations.find(item => item.a2aEligible);
+    assert.ok(retainedRecommendation);
+    let firstBoundedSessionId = '';
+    for (let index = 0; index < 21; index += 1) {
+      const response = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: retainedRecommendation.id, idempotencyKey: `bounded-${index}` }) });
+      assert.equal(response.status, 202);
+      const created = await response.json() as { id: string };
+      if (!firstBoundedSessionId) firstBoundedSessionId = created.id;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const current = await fetch(`${baseUrl}/api/a2a-sessions/${created.id}`, { headers });
+        if (current.status === 200 && ['completed', 'failed'].includes((await current.json() as { status: string }).status)) break;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    }
+    assert.equal((await fetch(`${baseUrl}/api/a2a-sessions/${firstBoundedSessionId}`, { headers })).status, 404);
   } finally {
     child.kill();
     await new Promise(resolve => child.once('exit', resolve));
