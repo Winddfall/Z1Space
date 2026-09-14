@@ -66,7 +66,7 @@ const candidateProfileProvider = new InMemoryCandidateProfileProvider(Object.fro
 const a2aAdapter = new FakeA2ASessionAdapter();
 const f05DraftPort = new InMemoryF05InvitationDraftPort();
 
-function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: ['chen', 'xia', 'zhou'], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
+function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: [], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
 function json(res: ServerResponse, status: number, body: unknown) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(body)); }
 class RequestBodyTooLarge extends Error {}
 async function body(req: IncomingMessage, maxBytes = Infinity) { let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > maxBytes) throw new RequestBodyTooLarge(); } return raw ? JSON.parse(raw) : {}; }
@@ -112,7 +112,7 @@ function restoreStateForAuthenticatedUser(req: IncomingMessage, res: ServerRespo
   if (!userId) return currentState(req, res);
   const id = sessionId(req, res);
   const current = currentState(req, res);
-  if (current.zhihuUser?.id === userId) return current;
+  if (current.zhihuUser?.id === userId) { clearSeededDiscovery(current); return current; }
   const saved = [...sessions.values()].find(state => state.zhihuUser?.id === userId && state.step === 'done');
   if (!saved) {
     if (current.zhihuUser?.id && current.zhihuUser.id !== userId) {
@@ -126,6 +126,7 @@ function restoreStateForAuthenticatedUser(req: IncomingMessage, res: ServerRespo
   const restored = { ...fresh(), ...saved };
   sessions.set(id, restored);
   hydrateStateEntities(restored);
+  clearSeededDiscovery(restored);
   void saveSessions();
   return restored;
 }
@@ -137,9 +138,20 @@ function humanUser(req: IncomingMessage, url: URL, res: ServerResponse): HumanUs
   return { id: `${sessionId(req, res)}:${selected}`, name: selected === 'b' ? '演示用户 B' : '演示用户 A' };
 }
 function profileDescription(skill: Skill) { const goal = String(skill.goal || '').trim().replace(/[。.!！?？]+$/, ''); return goal ? `正在通过 Agent：${goal}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`; }
-function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: [], contentMatches: [], people: {}, posts: {}, llmReady: false }; }
+function publicProfileQuery(profile: AgentContextSnapshot) { return profile.sections.filter(section => section.publicBoundary === 'public').map(section => section.impression.trim()).filter(Boolean).join(' ').trim(); }
+function discoveryQuery(skill: Skill | undefined, profile: AgentContextSnapshot) {
+  const profileQuery = publicProfileQuery(profile).slice(0, 360);
+  const skillQuery = skill ? `${skill.goal || ''} ${skill.keywords || ''}`.trim().slice(0, 140) : '';
+  return [profileQuery, skillQuery].filter(Boolean).join(' ').trim() || skill?.name || '';
+}
+function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先结合你确认的公开用户画像，再在知乎寻找有依据的用户连接。` }], matches: [], contentMatches: [], people: {}, posts: {}, llmReady: false }; }
 function triggeredRun(skill: Skill, ownerId: string, profileSnapshot: AgentContextSnapshot): TriggeredRun { return { ...runFor(skill), ownerId, profileSnapshot }; }
 function publicRun(run: TriggeredRun) { const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run; const discoveryIntent = extractSkillDiscoveryIntent(run); return { ...value, people: run.people, profileVersion: run.profileSnapshot.profileVersion, ...(discoveryIntent ? { discoveryIntent } : {}) }; }
+function clearSeededDiscovery(state: AppState) {
+  state.discoverIds = (state.discoverIds || []).filter(id => !['chen', 'xia', 'zhou'].includes(id));
+  state.contentIds = (state.contentIds || []).filter(id => !['p1', 'p3', 'p5'].includes(id));
+  state.feedIds = (state.feedIds || []).filter(id => !['chen', 'xia', 'zhou'].includes(id));
+}
 function mergeRunDiscoveryIntoState(state: AppState, run: Run) {
   state.people = { ...(state.people || {}), ...run.people };
   state.posts = { ...(state.posts || {}), ...run.posts };
@@ -227,8 +239,8 @@ async function synthesizeProfile(answers: string[], publicFacts: string[]): Prom
     return content ? parseProfileSynthesis(content, publicFacts.length > 0) || fallback : fallback;
   } catch { return fallback; }
 }
-async function enrichRun(run: Run, state: AppState) {
-  const query = `${run.skill.goal || ''} ${run.skill.keywords || ''}`.trim() || run.skill.name;
+async function enrichRun(run: TriggeredRun, state: AppState) {
+  const query = discoveryQuery(run.skill, run.profileSnapshot);
   try {
     const search = await searchZhihu(query, 10);
     const tags = [...new Set(query.split(/[\s,，、]+/).map(value => value.trim()).filter(Boolean))].slice(0, 5);
@@ -276,8 +288,8 @@ async function enrichRun(run: Run, state: AppState) {
     try {
       const candidateList = run.matches.map(id => run.people[id]).filter(Boolean).map(p => ({ id: p.id, name: p.name, role: p.role, bio: p.bio, tags: p.tags, topic: p.topic }));
       const content = await deepseekChat([
-        { role: 'system', content: '你是 Z1Space 的匹配 Agent。请基于用户 Skill 和候选人的公开简介，给出可靠、克制、有行动价值的匹配结果。只输出 JSON，格式为 {"matches":[{"id":"候选人id","reason":"不超过80字的匹配理由","opening":"一个适合用户继续询问对方 Agent 的问题"}],"summary":"不超过80字的总结"}。不要编造候选人资料。' },
-        { role: 'user', content: JSON.stringify({ skill: run.skill, candidates: candidateList }) }
+        { role: 'system', content: '你是 Z1Space 的匹配 Agent。请基于用户确认的公开画像、Skill 补充线索和候选人的公开简介，给出可靠、克制、有行动价值的匹配结果。只输出 JSON，格式为 {"matches":[{"id":"候选人id","reason":"不超过80字的匹配理由","opening":"一个适合用户继续询问对方 Agent 的问题"}],"summary":"不超过80字的总结"}。不要编造候选人资料。' },
+        { role: 'user', content: JSON.stringify({ profile: run.profileSnapshot.sections.filter(section => section.publicBoundary === 'public').map(section => section.impression), skill: run.skill, query, candidates: candidateList }) }
       ], { response_format: { type: 'json_object' }, max_tokens: 700 });
       const parsed = JSON.parse(content || '{}') as { matches?: { id: string; reason?: string; opening?: string }[]; summary?: string };
       const enriched = (parsed.matches || []).filter(x => run.people[x.id]);
@@ -383,14 +395,35 @@ const server = createServer(async (req, res) => {
         state.profileConfirmedAt = new Date().toISOString();
         await saveSessions();
       }
-      const profile = snapshotFor(state, ownerId); const requestedSkill = input.skill && state.skills.find(skill => skill.id === input.skill?.id); const event = trigger('skill_run.requested', ownerId, { skillId: input.skill?.id }); const activeRun = [...runs.values()].filter(run => run.ownerId === ownerId && run.skill.id === input.skill?.id).map(run => advance(run)).find(run => run.status === 'running'); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills, ...(activeRun ? { activeRun: { runId: activeRun.id, skillId: activeRun.skill.id } } : {}) }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'skill-runner' || !profile || !requestedSkill) return json(res, 400, { error: 'SKILL_NOT_FOUND' }); if (plan.existingRunId) { const existing = runs.get(plan.existingRunId)!; return json(res, 202, publicRun(advance(existing))); } const run = triggeredRun(requestedSkill, ownerId, profile); runs.set(run.id, run); void enrichRun(run, state).catch(error => { run.llmError = error instanceof Error ? error.message : 'Skill run failed'; run.llmReady = true; run.timeline.push({ kind: 'agent', text: '本次发现结果暂未保存，请稍后重试。' }); }); state.runs = [...(state.runs || []), { id: run.id, skillId: requestedSkill.id, createdAt: run.createdAt }]; await saveSessions(); return json(res, 202, publicRun(advance(run))); }
+      const profile = snapshotFor(state, ownerId); const requestedSkill = input.skill && state.skills.find(skill => skill.id === input.skill?.id); const event = trigger('skill_run.requested', ownerId, { skillId: input.skill?.id }); const activeRun = [...runs.values()].filter(run => run.ownerId === ownerId && run.skill.id === input.skill?.id).map(run => advance(run)).find(run => run.status === 'running'); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills, ...(activeRun ? { activeRun: { runId: activeRun.id, skillId: activeRun.skill.id } } : {}) }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'skill-runner' || !profile || !requestedSkill) return json(res, 400, { error: 'SKILL_NOT_FOUND' }); if (plan.existingRunId) { const existing = runs.get(plan.existingRunId)!; return json(res, 202, publicRun(advance(existing))); } clearSeededDiscovery(state); const run = triggeredRun(requestedSkill, ownerId, profile); runs.set(run.id, run); void enrichRun(run, state).catch(error => { run.llmError = error instanceof Error ? error.message : 'Skill run failed'; run.llmReady = true; run.timeline.push({ kind: 'agent', text: '本次发现结果暂未保存，请稍后重试。' }); }); state.runs = [...(state.runs || []), { id: run.id, skillId: requestedSkill.id, createdAt: run.createdAt }]; await saveSessions(); return json(res, 202, publicRun(advance(run))); }
     const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)$/); if (runMatch && req.method === 'GET') { const run = runs.get(runMatch[1]); if (!run || run.ownerId !== sessionId(req, res)) return json(res, 404, { error: 'RUN_NOT_FOUND' }); return json(res, 200, publicRun(advance(run))); }
 
-    const discoverMatch = url.pathname.match(/^\/api\/discover\/(people|content)$/); if (discoverMatch && req.method === 'GET') { const state = currentState(req, res); const ownerId = sessionId(req, res); const profile = snapshotFor(state, ownerId); const skillId = url.searchParams.get('skill_id') || undefined; const runId = url.searchParams.get('run_id') || undefined; const limit = Number(url.searchParams.get('limit') || 10); const event = trigger('explore.requested', ownerId, { target: discoverMatch[1], ...(skillId ? { skillId } : {}), ...(runId ? { runId } : {}), limit }); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'explore' || !profile) return json(res, 400, { error: 'INVALID_EVENT' }); const run = plan.runId ? runs.get(plan.runId) : undefined; if (plan.runId && !run) return json(res, 404, { error: 'RUN_NOT_FOUND' }); if (run && run.ownerId !== ownerId) return json(res, 404, { error: 'RUN_NOT_FOUND' }); const skill = (plan.skillId ? state.skills.find(item => item.id === plan.skillId) : undefined) || run?.skill; const query = url.searchParams.get('q') || `${skill?.goal || ''} ${skill?.keywords || ''}`.trim() || profile.sections.filter(section => section.publicBoundary === 'public').map(section => section.impression).join(' '); if (plan.target === 'people') { const allPeople = peopleForState(state, run); const pool: PeopleCandidate[] = Object.values(allPeople).map(({ id, name, role, bio, tags, topic }) => ({ id, name, role, bio, tags, topic })); const result = recallPeople(run ? pool.filter(candidate => run.matches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); } const allPosts = postsForState(state, run); const contentById = new Map<string, ContentCandidate>(contents.map(candidate => [candidate.id, candidate])); for (const post of Object.values(allPosts)) contentById.set(post.id, postCandidate(post)); const pool = [...contentById.values()]; const result = recallContent(run ? pool.filter(candidate => run.contentMatches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); }
+    const discoverMatch = url.pathname.match(/^\/api\/discover\/(people|content)$/); if (discoverMatch && req.method === 'GET') { const state = currentState(req, res); const ownerId = sessionId(req, res); const profile = snapshotFor(state, ownerId); const skillId = url.searchParams.get('skill_id') || undefined; const runId = url.searchParams.get('run_id') || undefined; const limit = Number(url.searchParams.get('limit') || 10); const event = trigger('explore.requested', ownerId, { target: discoverMatch[1], ...(skillId ? { skillId } : {}), ...(runId ? { runId } : {}), limit }); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'explore' || !profile) return json(res, 400, { error: 'INVALID_EVENT' }); const run = plan.runId ? runs.get(plan.runId) : undefined; if (plan.runId && !run) return json(res, 404, { error: 'RUN_NOT_FOUND' }); if (run && run.ownerId !== ownerId) return json(res, 404, { error: 'RUN_NOT_FOUND' }); const skill = (plan.skillId ? state.skills.find(item => item.id === plan.skillId) : undefined) || run?.skill; const query = url.searchParams.get('q') || discoveryQuery(skill, profile); if (plan.target === 'people') { const allPeople = peopleForState(state, run); const pool: PeopleCandidate[] = Object.values(allPeople).map(({ id, name, role, bio, tags, topic }) => ({ id, name, role, bio, tags, topic })); const result = recallPeople(run ? pool.filter(candidate => run.matches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); } const allPosts = postsForState(state, run); const contentById = new Map<string, ContentCandidate>(contents.map(candidate => [candidate.id, candidate])); for (const post of Object.values(allPosts)) contentById.set(post.id, postCandidate(post)); const pool = [...contentById.values()]; const result = recallContent(run ? pool.filter(candidate => run.contentMatches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); }
     if (url.pathname === '/api/a2a-sessions' && req.method === 'POST') { const input = await body(req, 2_048) as { recommendationId?: unknown; idempotencyKey?: unknown }; const ownerId = sessionId(req, res); if (typeof input.recommendationId !== 'string' || !input.recommendationId || input.recommendationId.length > 128 || typeof input.idempotencyKey !== 'string' || !input.idempotencyKey || input.idempotencyKey.length > 128) return json(res, 400, { error: 'INVALID_A2A_REQUEST' }); const key = `${ownerId}:${input.recommendationId}:${input.idempotencyKey}`; const existingId = a2aIdempotency.get(key); if (existingId) { const existing = a2aSessions.get(existingId); if (existing) return json(res, 202, existing); a2aIdempotency.delete(key); } const recommendation = recommendationSnapshots.get(recommendationKey(ownerId, input.recommendationId)); if (!recommendation) return json(res, 404, { error: 'RECOMMENDATION_NOT_FOUND' }); if (recommendation.targetType !== 'person' || recommendation.verdict !== 'recommended' || !recommendation.a2aEligible) return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' }); pruneA2ASessions(ownerId); if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' }); const state = currentState(req, res); const profile = snapshotFor(state, ownerId); if (!profile?.confirmedAt || profile.profileVersion !== recommendation.profileVersion) return json(res, 409, { error: 'PROFILE_VERSION_CHANGED' }); const candidate = peopleForState(state)[recommendation.candidateId]; if (!candidate) return json(res, 404, { error: 'CANDIDATE_NOT_FOUND' }); registerDynamicPerson(candidate); const candidateProfile = await candidateProfileProvider.getPublicProfile(recommendation.candidateId); if (!candidateProfile) return json(res, 404, { error: 'CANDIDATE_PROFILE_NOT_FOUND' }); const racedId = a2aIdempotency.get(key); if (racedId) return json(res, 202, a2aSessions.get(racedId)); if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' }); const session = createA2ASession(recommendation, profile, candidateProfile); a2aSessions.set(session.id, session); a2aIdempotency.set(key, session.id); void runA2ASession(session, a2aAdapter, f05DraftPort, updated => a2aSessions.set(updated.id, updated)); return json(res, 202, session); }
 
     const a2aMatch = url.pathname.match(/^\/api\/a2a-sessions\/([^/]+)$/); if (a2aMatch && req.method === 'GET') { const session = a2aSessions.get(a2aMatch[1]); if (!session || session.requesterId !== sessionId(req, res)) return json(res, 404, { error: 'A2A_SESSION_NOT_FOUND' }); return json(res, 200, session); }
-    const chatMatch = url.pathname.match(/^\/api\/agent-chats\/([^/]+)\/messages$/); if (chatMatch && req.method === 'POST') { const state = currentState(req, res); const person = peopleForState(state)[chatMatch[1]]; if (!person) return json(res, 404, { error: 'PERSON_NOT_FOUND' }); registerDynamicPerson(person); const input = await body(req) as { text?: string }; const messages = agentChats.get(person.id) || [{ from: 'agent', text: person.greeting, time: new Date().toISOString() }]; if (input.text?.trim()) { messages.push({ from: 'me', text: input.text.trim(), time: new Date().toISOString() }); let reply = `围绕「${person.topic}」，我的建议是先从具体经历聊起。你也可以问我：${person.reason}`; try { reply = await deepseekChat([{ role: 'system', content: `你是 ${person.name} 的个人 Agent，只能根据以下公开画像回答。你不是本人，不要冒充真人；语气友好、具体，回答控制在180字内，并给出一个可继续交流的问题。画像：${JSON.stringify(person)}` }, ...messages.slice(-8).map(m => ({ role: m.from === 'me' ? 'user' as const : 'assistant' as const, content: m.text }))]) || reply; } catch { /* keep a deterministic fallback when the provider is unavailable */ } messages.push({ from: 'agent', text: reply, time: new Date().toISOString() }); } agentChats.set(person.id, messages); return json(res, 200, { person, messages, provider: process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'fallback' }); }
+    const chatMatch = url.pathname.match(/^\/api\/agent-chats\/([^/]+)\/messages$/); if (chatMatch && req.method === 'POST') {
+      const state = currentState(req, res);
+      const ownerId = sessionId(req, res);
+      const person = peopleForState(state)[chatMatch[1]];
+      if (!person) return json(res, 404, { error: 'PERSON_NOT_FOUND' });
+      registerDynamicPerson(person);
+      const input = await body(req) as { text?: string };
+      const chatKey = `${ownerId}:${person.id}`;
+      const persistedMessages = state.agentChats?.[person.id];
+      const messages = agentChats.get(chatKey) || (Array.isArray(persistedMessages) ? persistedMessages.map(message => ({ ...message })) : [{ from: 'agent', text: person.greeting, time: new Date().toISOString() }]);
+      if (input.text?.trim()) {
+        messages.push({ from: 'me', text: input.text.trim(), time: new Date().toISOString() });
+        let reply = `围绕「${person.topic}」，我的建议是先从具体经历聊起。你也可以问我：${person.reason}`;
+        try { reply = await deepseekChat([{ role: 'system', content: `你是 ${person.name} 的个人 Agent，只能根据以下公开画像回答。你不是本人，不要冒充真人；语气友好、具体，回答控制在180字内，并给出一个可继续交流的问题。画像：${JSON.stringify(person)}` }, ...messages.slice(-8).map(m => ({ role: m.from === 'me' ? 'user' as const : 'assistant' as const, content: m.text }))]) || reply; } catch { /* keep a deterministic fallback when the provider is unavailable */ }
+        messages.push({ from: 'agent', text: reply, time: new Date().toISOString() });
+      }
+      const savedMessages = messages.map(message => ({ ...message }));
+      agentChats.set(chatKey, savedMessages);
+      state.agentChats = { ...(state.agentChats || {}), [person.id]: savedMessages };
+      await saveSessions();
+      return json(res, 200, { person, messages: savedMessages, provider: process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'fallback' });
+    }
     const file = staticPath(url.pathname); if (file) { const content = await readFile(file); const type = extname(file) === '.js' ? 'text/javascript; charset=utf-8' : extname(file) === '.png' ? 'image/png' : 'text/html; charset=utf-8'; res.writeHead(200, { 'content-type': type }); return res.end(content); }
     return json(res, 404, { error: 'NOT_FOUND' });
   } catch (error) { if (error instanceof RequestBodyTooLarge) return json(res, 413, { error: 'REQUEST_TOO_LARGE' }); if (error instanceof HumanChatError) return json(res, error.status, { error: error.code }); console.error(error); return json(res, 500, { error: 'INTERNAL_ERROR' }); }
