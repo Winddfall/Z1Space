@@ -14,7 +14,7 @@ const profile = buildAgentContextSnapshot({
   profilePublicBoundaries: ['public', 'private', 'public']
 }, 'owner-1');
 
-test('builds the people discovery intent from the confirmed public profile first', () => {
+test('builds the people discovery intent from Skill content without profile context', () => {
   const intent = extractSkillDiscoveryIntent({
     id: 'run-1',
     status: 'completed',
@@ -23,8 +23,8 @@ test('builds the people discovery intent from the confirmed public profile first
   });
 
   assert.ok(intent);
-  assert.match(intent.query, /AI 产品入口与任务流程/);
-  assert.match(intent.query, /寻找不同观点的人/);
+  assert.equal(intent.query, '寻找不同观点的人 产品 设计');
+  assert.doesNotMatch(intent.query, /AI 产品入口与任务流程/);
   assert.doesNotMatch(intent.query, /亲自验证交互方案/);
   assert.deepEqual(intent.constraints.keywords, ['产品', '设计']);
 });

@@ -18,13 +18,17 @@ export type SkillRunDiscoverySource = Readonly<{
   profileSnapshot?: AgentContextSnapshot;
 }>;
 
+export function skillDiscoveryQuery(skill: Readonly<{ name: string; goal?: string; keywords?: string }>) {
+  const goal = String(skill.goal || '').trim();
+  const keywords = String(skill.keywords || '').trim();
+  return [goal, keywords].filter(Boolean).join(' ').trim().slice(0, 140) || skill.name.trim();
+}
+
 export function extractSkillDiscoveryIntent(run: SkillRunDiscoverySource): SkillDiscoveryIntent | null {
   if (run.status !== 'completed') return null;
   const goal = String(run.skill.goal || '').trim();
   const keywords = Object.freeze([...new Set(String(run.skill.keywords || '').split(/[\s,，、]+/).map(item => item.trim()).filter(Boolean))]);
-  const profileQuery = run.profileSnapshot?.sections.filter(section => section.publicBoundary === 'public').map(section => section.impression.trim()).filter(Boolean).join(' ').trim().slice(0, 360) || '';
-  const skillQuery = [goal, ...keywords].filter(Boolean).join(' ').trim().slice(0, 140);
-  const query = [profileQuery, skillQuery].filter(Boolean).join(' ').trim() || run.skill.name.trim();
+  const query = skillDiscoveryQuery(run.skill);
   if (!query) return null;
   return Object.freeze({
     intent: 'discover_people',
