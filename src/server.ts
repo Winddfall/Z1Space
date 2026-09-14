@@ -21,7 +21,7 @@ import { createA2ASession, runA2ASession, type A2ASession, type RecommendationSn
 import { extractSkillDiscoveryIntent } from './skill-discovery-bridge.ts';
 
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
-type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
+type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; updatedAt?: number; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
 type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string; source?: 'zhihu' | 'demo' };
 type Post = { id: string; person: string; kind: '发布' | '分享' | '赞同'; time: string; title: string; text: string; full: string; likes: number; author?: string; tags?: string[]; url?: string; source?: 'zhihu' | 'demo' };
@@ -107,13 +107,26 @@ function hydrateStateEntities(state: AppState) {
 }
 async function loadSessions() { if (!existsSync(stateFile)) return; try { const saved = JSON.parse(await readFile(stateFile, 'utf8')); for (const [id, value] of Object.entries(saved)) { const state = value as AppState; sessions.set(id, state); hydrateStateEntities(state); } } catch { /* a corrupt demo file should not block a fresh session */ } }
 function currentState(req: IncomingMessage, res: ServerResponse) { const id = sessionId(req, res); if (!sessions.has(id)) sessions.set(id, fresh()); return sessions.get(id)!; }
+function hasValidImpressions(state: AppState) { return Array.isArray(state.impressions) && state.impressions.length === 3 && state.impressions.every(value => typeof value === 'string' && value.trim().length >= 8); }
+function backfillProfileConfirmation(state: AppState) {
+  if (state.profileConfirmedAt || !['skills', 'done'].includes(state.step) || !hasValidImpressions(state)) return false;
+  state.profileVersion = Number.isInteger(state.profileVersion) && Number(state.profileVersion) > 0 ? Number(state.profileVersion) : 1;
+  state.profileConfirmedAt = new Date().toISOString();
+  return true;
+}
+function stateCompleteness(state: AppState) {
+  const stepRank = { auth: 0, impressions: 1, skills: 2, done: 3 } as Record<string, number>;
+  return (stepRank[state.step] || 0) * 10 + (Array.isArray(state.impressions) ? Math.min(state.impressions.length, 3) : 0);
+}
 function restoreStateForAuthenticatedUser(req: IncomingMessage, res: ServerResponse) {
   const userId = authSession(req).user?.id;
   if (!userId) return currentState(req, res);
   const id = sessionId(req, res);
   const current = currentState(req, res);
   if (current.zhihuUser?.id === userId) { clearSeededDiscovery(current); return current; }
-  const saved = [...sessions.values()].find(state => state.zhihuUser?.id === userId && state.step === 'done');
+  const saved = [...sessions.values()]
+    .filter(state => state.zhihuUser?.id === userId)
+    .sort((left, right) => (Number(right.updatedAt || 0) - Number(left.updatedAt || 0)) || (stateCompleteness(right) - stateCompleteness(left)))[0];
   if (!saved) {
     if (current.zhihuUser?.id && current.zhihuUser.id !== userId) {
       const next = fresh();
@@ -124,6 +137,7 @@ function restoreStateForAuthenticatedUser(req: IncomingMessage, res: ServerRespo
     return current;
   }
   const restored = { ...fresh(), ...saved };
+  backfillProfileConfirmation(restored);
   sessions.set(id, restored);
   hydrateStateEntities(restored);
   clearSeededDiscovery(restored);
@@ -390,13 +404,11 @@ const server = createServer(async (req, res) => {
       return json(res, 200, await synthesizeProfile(answers, profilePublicFacts(req)));
     }
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, restoreStateForAuthenticatedUser(req, res));
-    if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); const saved = { ...fresh(), ...next, version: 1 }; sessions.set(id, saved); hydrateStateEntities(saved); await saveSessions(); return json(res, 200, saved); }
+    if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); const saved = { ...fresh(), ...next, version: 1, updatedAt: Date.now() }; backfillProfileConfirmation(saved); sessions.set(id, saved); hydrateStateEntities(saved); await saveSessions(); return json(res, 200, saved); }
     if (url.pathname === '/api/runs' && req.method === 'POST') { const input = await body(req) as { skill?: Skill }; const state = currentState(req, res); const ownerId = sessionId(req, res);
       // Migrate sessions created by older clients: completing onboarding with
       // three valid impressions is the existing confirmation action.
-      if (!state.profileConfirmedAt && state.step === 'done' && Array.isArray(state.impressions) && state.impressions.length === 3 && state.impressions.every(value => typeof value === 'string' && value.trim().length >= 8)) {
-        state.profileVersion = Number.isInteger(state.profileVersion) && Number(state.profileVersion) > 0 ? Number(state.profileVersion) : 1;
-        state.profileConfirmedAt = new Date().toISOString();
+      if (backfillProfileConfirmation(state)) {
         await saveSessions();
       }
       const profile = snapshotFor(state, ownerId); const requestedSkill = input.skill && state.skills.find(skill => skill.id === input.skill?.id); const event = trigger('skill_run.requested', ownerId, { skillId: input.skill?.id }); const activeRun = [...runs.values()].filter(run => run.ownerId === ownerId && run.skill.id === input.skill?.id).map(run => advance(run)).find(run => run.status === 'running'); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills, ...(activeRun ? { activeRun: { runId: activeRun.id, skillId: activeRun.skill.id } } : {}) }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'skill-runner' || !profile || !requestedSkill) return json(res, 400, { error: 'SKILL_NOT_FOUND' }); if (plan.existingRunId) { const existing = runs.get(plan.existingRunId)!; return json(res, 202, publicRun(advance(existing))); } clearSeededDiscovery(state); const run = triggeredRun(requestedSkill, ownerId, profile); runs.set(run.id, run); void enrichRun(run, state).catch(error => { run.searchError = true; run.llmError = error instanceof Error ? error.message : 'Skill run failed'; run.llmReady = true; run.timeline.push({ kind: 'agent', text: '本次发现结果暂未保存，请稍后重试。' }); }); state.runs = [...(state.runs || []), { id: run.id, skillId: requestedSkill.id, createdAt: run.createdAt }]; await saveSessions(); return json(res, 202, publicRun(advance(run))); }
