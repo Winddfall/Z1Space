@@ -13,6 +13,7 @@ import { OAuthStateStore } from './auth/oauth-state.ts';
 import { authorizationUrl, exchangeCode, fetchUser } from './zhihu/zhihu-oauth-client.ts';
 import { readZhihuOAuthConfig } from './zhihu/oauth-config.ts';
 import { redirect } from './http/response.ts';
+import { searchZhihuUsers } from './zhihu/skill-search.ts';
 import { HumanChatError, HumanChatStore } from './human-chat/store.ts';
 import type { HumanUser } from './human-chat/types.ts';
 import { FakeA2ASessionAdapter, InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort } from './a2a-adapter.ts';
@@ -21,6 +22,7 @@ import { createA2ASession, runA2ASession, type A2ASession, type RecommendationSn
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
 type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
+type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string };
 type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; llmReady?: boolean; llmError?: string };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
 
@@ -45,7 +47,7 @@ const maxA2ASessionsPerOwner = 20;
 const maxConcurrentA2ASessions = 20;
 const maxConcurrentA2ASessionsPerOwner = 2;
 
-const people: Record<string, { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string }> = {
+const people: Record<string, Person> = {
   chen: { id: 'chen', name: '陈序', role: '独立开发者 · AI 产品实践', bio: '在做让复杂任务变简单的工具。写过代码，也踩过产品的坑。', tags: ['AI 产品', '独立开发', '交互'], reason: '他有 AI 产品落地经验，与你都在思考如何把复杂任务变简单。', topic: 'AI 产品应该先做聊天入口，还是任务流程？', greeting: '你好，我是陈序。看到你也在研究 AI 产品入口，我正好有一次改版经历可以分享。' },
   xia: { id: 'xia', name: '许知夏', role: '用户研究员 · 关注人与技术', bio: '喜欢把“用户需要什么”问得再具体一点。', tags: ['用户研究', '产品', 'AI'], reason: '她关注 AI 如何进入真实场景，与你对真实用户需求的兴趣一致。', topic: '做第一个 AI 产品时，应该先问用户什么？', greeting: '你好呀，我是知夏。很想听听你最近遇到的真实用户问题。' },
   zhou: { id: 'zhou', name: '周予', role: '交互设计师 · 自由创作者', bio: '关心界面的细节，也关心一个产品给人的感觉。', tags: ['交互设计', 'AI 产品', '设计'], reason: '他习惯从具体交互讨论产品取舍，与你关注的问题直接相关。', topic: 'Agent 应该主动到什么程度？', greeting: '你好，我是周予。最近也在画 Agent 产品的交互流程，可以一起聊聊。' }
@@ -77,7 +79,7 @@ function humanUser(req: IncomingMessage, url: URL, res: ServerResponse): HumanUs
   return { id: `${sessionId(req, res)}:${selected}`, name: selected === 'b' ? '演示用户 B' : '演示用户 A' };
 }
 function profileDescription(skill: Skill) { const goal = String(skill.goal || '').trim().replace(/[。.!！?？]+$/, ''); return goal ? `正在通过 Agent：${goal}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`; }
-function runFor(skill: Skill): Run { const terms = `${skill.name} ${skill.goal || ''} ${skill.keywords || ''}`.toLowerCase(); const matches = Object.values(people).filter(p => p.tags.some(t => terms.includes(t.toLowerCase())) || terms.includes('人') || terms.includes('实习')).slice(0, 2).map(p => p.id); return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: matches.length ? matches : ['chen', 'xia'], llmReady: !process.env.DEEPSEEK_API_KEY }; }
+function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: [], llmReady: false }; }
 function triggeredRun(skill: Skill, ownerId: string, profileSnapshot: AgentContextSnapshot): TriggeredRun { return { ...runFor(skill), ownerId, profileSnapshot }; }
 function publicRun(run: TriggeredRun) { const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run; return { ...value, profileVersion: run.profileSnapshot.profileVersion }; }
 function trigger(type: TriggerEvent['type'], ownerId: string, payload: Record<string, unknown>, source: TriggerEvent['source'] = 'web'): TriggerEvent { const eventId = randomUUID(); return { schemaVersion: 1, eventId, type, occurredAt: new Date().toISOString(), source, actor: { userId: ownerId, sessionId: ownerId }, correlationId: eventId, payload }; }
@@ -100,9 +102,32 @@ async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; c
   return payload.choices?.[0]?.message?.content?.trim() || '';
 }
 async function enrichRun(run: Run) {
-  if (!process.env.DEEPSEEK_API_KEY) return;
+  const query = `${run.skill.goal || ''} ${run.skill.keywords || ''}`.trim() || run.skill.name;
   try {
-    const candidateList = run.matches.map(id => people[id]).filter(Boolean).map(p => ({ id: p.id, name: p.name, role: p.role, bio: p.bio, tags: p.tags, topic: p.topic }))
+    const results = await searchZhihuUsers(query, 10);
+    for (const result of results) {
+      const id = `zhihu:${Buffer.from(result.authorName + result.url).toString('base64url').slice(0, 32)}`;
+      if (!people[id]) people[id] = {
+        id,
+        name: result.authorName,
+        role: '知乎用户 · 来自知乎搜索',
+        bio: result.excerpt || `在知乎分享「${result.title}」相关经验。`,
+        tags: [query].filter(Boolean),
+        reason: `知乎搜索中发现其分享过「${result.title}」，与“${query}”直接相关。`,
+        topic: result.title,
+        greeting: `你好，看到你在知乎分享「${result.title}」，我也在关注“${query}”，想了解你的实践经历。`,
+        url: result.url
+      };
+      if (!run.matches.includes(id)) run.matches.push(id);
+    }
+    if (!results.length) run.timeline.push({ kind: 'agent', text: `知乎搜索暂未返回“${query}”对应的公开用户结果。` });
+  } catch (error) {
+    run.llmError = error instanceof Error ? error.message : '知乎搜索失败';
+    run.timeline.push({ kind: 'agent', text: '知乎 Skill 暂时无法完成真实搜索，请检查 CLI 认证或网络连接。' });
+  }
+  if (!process.env.DEEPSEEK_API_KEY || !run.matches.length) { run.llmReady = true; return; }
+  try {
+    const candidateList = run.matches.map(id => people[id]).filter(Boolean).map(p => ({ id: p.id, name: p.name, role: p.role, bio: p.bio, tags: p.tags, topic: p.topic }));
     const content = await deepseekChat([
       { role: 'system', content: '你是 Z1Space 的匹配 Agent。请基于用户 Skill 和候选人的公开简介，给出可靠、克制、有行动价值的匹配结果。只输出 JSON，格式为 {"matches":[{"id":"候选人id","reason":"不超过80字的匹配理由","opening":"一个适合用户继续询问对方 Agent 的问题"}],"summary":"不超过80字的总结"}。不要编造候选人资料。' },
       { role: 'user', content: JSON.stringify({ skill: run.skill, candidates: candidateList }) }
@@ -112,8 +137,8 @@ async function enrichRun(run: Run) {
     if (enriched.length) run.matches = enriched.map(x => x.id);
     if (parsed.summary) run.timeline.push({ kind: 'agent', text: parsed.summary });
     for (const match of enriched) { if (match.reason && people[match.id]) people[match.id].reason = match.reason; if (match.opening && people[match.id]) people[match.id].topic = match.opening; }
-    run.llmReady = true;
-  } catch (error) { run.llmError = error instanceof Error ? error.message : 'DeepSeek request failed'; run.llmReady = true; run.timeline.push({ kind: 'agent', text: '模型暂时不可用，我先用本地匹配结果继续，不影响你查看候选人。' }); }
+  } catch (error) { run.llmError = error instanceof Error ? error.message : 'DeepSeek request failed'; run.timeline.push({ kind: 'agent', text: '模型暂时不可用，我先用知乎搜索结果继续。' }); }
+  run.llmReady = true;
 }
 function advance(run: Run) { const elapsed = Date.now() - run.createdAt; const stage = Math.min(run.llmReady ? 3 : 2, Math.floor(elapsed / 650)); while (run.stage < stage) { run.stage += 1; if (run.stage === 1) run.timeline.push({ kind: 'agent', text: '我正在把你的需求拆成几个可匹配的线索，避免只按关键词机械搜索。' }); if (run.stage === 2) run.timeline.push({ kind: 'agent', text: `我找到了 ${run.matches.length} 位可能有帮助的人，正在整理他们与你的共同话题。` }); if (run.stage === 3) { run.status = 'completed'; run.timeline.push({ kind: 'agent', text: '有结果了。下面的人物卡片来自本次任务的匹配依据，你可以先与他们的 Agent 交流，了解更多情况。' }); } } return run; }
 function staticPath(pathname: string) { if (pathname === '/') return join(root, 'Z1Space.html'); if (pathname === '/z1space-client.js') return join(root, 'public', 'z1space-client.js'); return null; }

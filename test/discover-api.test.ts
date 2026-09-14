@@ -142,7 +142,7 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.ok(run.id);
     assert.equal(run.status, 'running');
     assert.equal(run.profileVersion, 3);
-    assert.deepEqual(run.matches, ['chen', 'xia']);
+    assert.deepEqual(run.matches, []);
 
     const spoofedRunResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers: { ...baseHeaders, 'x-z1-session': goldenSessionId } });
     assert.equal(spoofedRunResponse.status, 404);
