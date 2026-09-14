@@ -7,3 +7,6 @@ node_modules
 
 # macOS Finder 元数据
 .DS_Store
+
+# 本地密钥
+.env
