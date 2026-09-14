@@ -8,184 +8,127 @@
       "你对 AI 和个人工具保持好奇，也愿意亲自动手尝试。你正在探索从一个想法到一个可用产品的过程，常常把技术可能性和人的真实需要放在一起讨论。",
       "你希望认识愿意认真交流、分享真实经验的人。你能贡献用户访谈与交互设计方面的思考，也期待从开发者和独立创作者那里获得不同视角。"
     ],
-    "skills": [
-      {
-        "id": "custom-mu081a7t",
-        "name": "寻找北京大厂实习",
-        "goal": "我想在北京找大厂实习",
-        "keywords": "大厂 实习 计算机",
-        "kind": "people",
-        "frequency": "手动运行",
-        "desc": "我想在北京找大厂实习",
-        "icon": "spark",
-        "color": "purple",
-        "enabled": true,
-        "profileTitle": "寻找北京大厂实习",
-        "profileDescription": "正在通过 Agent：我想在北京找大厂实习，并把这轮探索中形成的连接沉淀为个人画像。"
-      }
-    ],
+    "skills": [],
     "following": [],
     "liked": [],
     "saved": [],
     "chats": {},
-    "runs": [
-      {
-        "id": "d7614e37-2e72-4084-a4f6-78e1a5e1fa9b",
-        "skillId": "custom-mu081a7t",
-        "timeline": [
-          {
-            "kind": "agent",
-            "text": "收到，我开始执行「寻找北京大厂实习」。我会先理解你的目标，再寻找有依据的连接。"
-          },
-          {
-            "kind": "agent",
-            "text": "我正在把你的需求拆成几个可匹配的线索，避免只按关键词机械搜索。"
-          },
-          {
-            "kind": "agent",
-            "text": "我找到了 2 位可能有帮助的人，正在整理他们与你的共同话题。"
-          },
-          {
-            "kind": "agent",
-            "text": "两位候选人均与AI产品相关，可分别从开发实践和用户研究角度，帮你了解北京大厂实习方向。"
-          },
-          {
-            "kind": "agent",
-            "text": "有结果了。下面的人物卡片来自本次任务的匹配依据，你可以先与他们的 Agent 交流，了解更多情况。"
-          }
-        ]
-      },
-      {
-        "id": "3e8d6e6b-4742-46dd-9591-da1acb139195",
-        "skillId": "custom-mu081a7t",
-        "timeline": [
-          {
-            "kind": "agent",
-            "text": "收到，我开始执行「寻找北京大厂实习」。我会先理解你的目标，再寻找有依据的连接。"
-          },
-          {
-            "kind": "agent",
-            "text": "我正在把你的需求拆成几个可匹配的线索，避免只按关键词机械搜索。"
-          },
-          {
-            "kind": "agent",
-            "text": "两位候选人均与北京大厂实习方向相关：陈序偏AI产品与开发，许知夏偏用户研究，可按岗位偏好进一步沟通。"
-          },
-          {
-            "kind": "agent",
-            "text": "我找到了 2 位可能有帮助的人，正在整理他们与你的共同话题。"
-          },
-          {
-            "kind": "agent",
-            "text": "有结果了。下面的人物卡片来自本次任务的匹配依据，你可以先与他们的 Agent 交流，了解更多情况。"
-          }
-        ]
-      }
-    ],
+    "runs": [],
     "discoverIds": [
       "chen",
-      "xia"
+      "xia",
+      "zhou"
     ],
     "contentIds": [
       "p1",
       "p3",
       "p5"
     ],
-    "lastView": "messages",
+    "lastView": "skills",
+    "agentChats": {}
+  },
+  "ac66b94c-1f99-45ce-9010-08babb76a189": {
+    "version": 1,
+    "step": "auth",
+    "name": "小林",
+    "impressions": [
+      "你习惯从具体问题出发思考产品。比起追逐新概念，你更在意一个功能为什么存在、谁会真正使用，以及它是否让体验变得简单。你喜欢有过程、有取舍的实践分享。",
+      "你对 AI 和个人工具保持好奇，也愿意亲自动手尝试。你正在探索从一个想法到一个可用产品的过程，常常把技术可能性和人的真实需要放在一起讨论。",
+      "你希望认识愿意认真交流、分享真实经验的人。你能贡献用户访谈与交互设计方面的思考，也期待从开发者和独立创作者那里获得不同视角。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {}
+  },
+  "75cc9a1e-d68d-48a7-8ceb-577bf47e0c36": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [
+      "你习惯从具体问题出发思考产品。比起追逐新概念，你更在意一个功能为什么存在、谁会真正使用，以及它是否让体验变得简单。你喜欢有过程、有取舍的实践分享。",
+      "你对 AI 和个人工具保持好奇，也愿意亲自动手尝试。你正在探索从一个想法到一个可用产品的过程，常常把技术可能性和人的真实需要放在一起讨论。",
+      "你希望认识愿意认真交流、分享真实经验的人。你能贡献用户访谈与交互设计方面的思考，也期待从开发者和独立创作者那里获得不同视角。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
     "agentChats": {},
-    "agentRuns": [
-      {
-        "id": "f68c4949-cbfe-41cc-83f8-b00dd36a69e7",
-        "skill": {
-          "id": "custom-mu081a7t",
-          "name": "寻找北京大厂实习",
-          "goal": "我想在北京找大厂实习",
-          "keywords": "大厂 实习 计算机",
-          "kind": "people",
-          "frequency": "手动运行",
-          "desc": "我想在北京找大厂实习",
-          "icon": "spark",
-          "color": "purple",
-          "enabled": true,
-          "profileTitle": "寻找北京大厂实习",
-          "profileDescription": "正在通过 Agent：我想在北京找大厂实习，并把这轮探索中形成的连接沉淀为个人画像。"
-        },
-        "createdAt": 1789329009964,
-        "status": "completed",
-        "stage": 3,
-        "timeline": [
-          {
-            "kind": "agent",
-            "text": "收到，我开始执行「寻找北京大厂实习」。我会先理解你的目标，再寻找有依据的连接。"
-          },
-          {
-            "kind": "agent",
-            "text": "我正在把你的需求拆成几个可匹配的线索，避免只按关键词机械搜索。"
-          },
-          {
-            "kind": "agent",
-            "text": "我找到了 2 位可能有帮助的人，正在整理他们与你的共同话题。"
-          },
-          {
-            "kind": "agent",
-            "text": "两位候选人都聚焦AI产品实践，可帮你了解大厂实习所需的产品与用户研究能力，建议进一步交流。"
-          },
-          {
-            "kind": "agent",
-            "text": "有结果了。下面的人物卡片来自本次任务的匹配依据，你可以先与他们的 Agent 交流，了解更多情况。"
-          }
-        ],
-        "matches": [
-          "chen",
-          "xia"
-        ],
-        "llmReady": true,
-        "people": {
-          "chen": {
-            "id": "chen",
-            "name": "陈序",
-            "role": "独立开发者 · AI 产品实践",
-            "bio": "在做让复杂任务变简单的工具。写过代码，也踩过产品的坑。",
-            "tags": [
-              "AI 产品",
-              "独立开发",
-              "交互"
-            ],
-            "reason": "独立开发AI产品，有代码与产品落地经验，能分享大厂实习看重的产品实践与踩坑心得。",
-            "topic": "你从独立开发AI产品中，觉得哪些经历对申请北京大厂实习最有帮助？",
-            "greeting": "你好，我是陈序。看到你也在研究 AI 产品入口，我正好有一次改版经历可以分享。"
-          },
-          "xia": {
-            "id": "xia",
-            "name": "许知夏",
-            "role": "用户研究员 · 关注人与技术",
-            "bio": "喜欢把“用户需要什么”问得再具体一点。",
-            "tags": [
-              "用户研究",
-              "产品",
-              "AI"
-            ],
-            "reason": "用户研究与AI产品方向，能帮助理解大厂产品岗对用户需求洞察的要求，适合产品实习探索。",
-            "topic": "如果目标是北京大厂产品实习，你会建议先补足哪类用户研究能力？",
-            "greeting": "你好呀，我是知夏。很想听听你最近遇到的真实用户问题。"
-          },
-          "zhou": {
-            "id": "zhou",
-            "name": "周予",
-            "role": "交互设计师 · 自由创作者",
-            "bio": "关心界面的细节，也关心一个产品给人的感觉。",
-            "tags": [
-              "交互设计",
-              "AI 产品",
-              "设计"
-            ],
-            "reason": "他习惯从具体交互讨论产品取舍，与你关注的问题直接相关。",
-            "topic": "Agent 应该主动到什么程度？",
-            "greeting": "你好，我是周予。最近也在画 Agent 产品的交互流程，可以一起聊聊。"
-          }
-        },
-        "skillId": "custom-mu081a7t"
-      }
-    ]
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic3.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    }
+  },
+  "c4622ecb-b019-4279-9ee0-c186f7373626": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [
+      "你习惯从具体问题出发思考产品。比起追逐新概念，你更在意一个功能为什么存在、谁会真正使用，以及它是否让体验变得简单。你喜欢有过程、有取舍的实践分享。",
+      "你对 AI 和个人工具保持好奇，也愿意亲自动手尝试。你正在探索从一个想法到一个可用产品的过程，常常把技术可能性和人的真实需要放在一起讨论。",
+      "你希望认识愿意认真交流、分享真实经验的人。你能贡献用户访谈与交互设计方面的思考，也期待从开发者和独立创作者那里获得不同视角。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic3.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    }
   }
 }
