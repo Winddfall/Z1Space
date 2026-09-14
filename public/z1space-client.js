@@ -462,14 +462,17 @@
     const candidates = run.matches?.map(id => run.people?.[id] || state.people?.[id]).filter(Boolean) || [];
     const contentCount = run.contentMatches?.length || 0;
     const completed = run.status === 'completed';
+    const failed = run.status === 'failed';
     const hasResults = candidates.length > 0 || contentCount > 0;
-    const statusLabel = completed ? (hasResults ? '已完成' : '无匹配结果') : '进行中';
+    const statusLabel = failed ? '执行失败' : completed ? (hasResults ? '已完成' : '无匹配结果') : '进行中';
     const statusClass = completed && hasResults ? 'done' : '';
-    const emptyMessage = !completed
-      ? 'Agent 正在寻找合适的连接，请稍候…'
-      : contentCount > 0
-        ? `本次没有找到合适的用户，但找到了 ${contentCount} 条相关内容。`
-        : '本次没有找到符合条件的用户。可以调整 Skill 的目标或关键词后再试。';
+    const emptyMessage = failed
+      ? (run.llmError || '知乎搜索暂时不可用，请稍后重试。')
+      : !completed
+        ? 'Agent 正在寻找合适的连接，请稍候…'
+        : contentCount > 0
+          ? `本次没有找到合适的用户，但找到了 ${contentCount} 条相关内容。`
+          : '本次没有找到符合条件的用户。可以调整 Skill 的目标或关键词后再试。';
     const stages = ['理解你的兴趣与任务', '匹配人物与共同话题', '整理推荐理由与交流线索'];
     return `<section class="agent-message-panel"><div class="agent-panel-head"><div><span class="eyebrow">AGENT TASK</span><h2>${esc(run.skill?.name || '最近一次探索')}</h2></div><span class="agent-status-pill ${statusClass}">${statusLabel}</span></div><div class="agent-timeline">${stages.map((text, i) => `<div class="agent-stage ${i < (run.stage || 0) ? 'done' : i === (run.stage || 0) ? 'current' : ''}"><span>${i < (run.stage || 0) ? '✓' : i + 1}</span><p>${text}</p></div>`).join('')}</div>${run.timeline?.length ? `<div class="agent-summary">${esc(run.timeline[run.timeline.length - 1].text)}</div>` : ''}${candidates.length ? `<div class="agent-results-head"><div><span class="eyebrow">MATCHED PEOPLE</span><h3>这些人，值得先聊聊</h3></div><span class="muted">${candidates.length} 位候选人</span></div><div class="agent-person-grid">${candidates.map(p => `<article class="agent-person-card"><div class="agent-card-top"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h3>${esc(p.name)}</h3><p>${esc(p.role)}</p></div></div><div class="agent-tags">${p.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div><p class="agent-reason">${esc(p.reason)}</p><button class="button small wide" data-action="agent-chat" data-person="${p.id}" data-topic="${esc(p.topic || '')}">让双方 Agent 先聊聊</button></article>`).join('')}</div>` : `<div class="agent-empty">${emptyMessage}</div>`}</section>`;
   }

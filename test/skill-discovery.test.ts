@@ -151,3 +151,51 @@ process.stdout.write(JSON.stringify({Data:[
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('marks a Skill run failed when Zhihu search is unavailable', async () => {
+  const port = await availablePort();
+  const dataDir = await mkdtemp(join(tmpdir(), 'z1space-skill-discovery-failure-'));
+  const cliPath = join(dataDir, 'zhihu-cli');
+  await writeFile(cliPath, `#!/usr/bin/env node
+console.error('知乎搜索 API 返回错误 30001');
+process.exit(1);
+`);
+  await chmod(cliPath, 0o755);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, ['--env-file-if-exists=.env', 'src/server.ts'], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port), Z1SPACE_DATA_DIR: dataDir, ZHIHU_CLI_PATH: cliPath, ZHIHU_ACCESS_SECRET: '', DEEPSEEK_API_KEY: '' },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const baseHeaders = { 'content-type': 'application/json' };
+
+  try {
+    await waitForServer(baseUrl, child);
+    const saved = await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers: baseHeaders, body: JSON.stringify(profileState) });
+    assert.equal(saved.status, 200);
+    const headers = { ...baseHeaders, cookie: cookieFrom(saved) };
+
+    const started = await fetch(`${baseUrl}/api/runs`, { method: 'POST', headers, body: JSON.stringify({ skill: profileState.skills[0] }) });
+    assert.equal(started.status, 202);
+    const initialRun = await started.json() as { id: string };
+
+    let run: any = initialRun;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/runs/${initialRun.id}`, { headers });
+      assert.equal(response.status, 200);
+      run = await response.json();
+      if (run.status === 'failed') break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    assert.equal(run.status, 'failed');
+    assert.equal(run.searchError, true);
+    assert.match(run.llmError, /知乎搜索 API 返回错误 30001/);
+    assert.equal(run.matches.length, 0);
+    assert.equal(run.contentMatches.length, 0);
+    assert.equal(run.timeline.some((item: any) => item.text.includes('没有找到符合条件')), false);
+  } finally {
+    child.kill();
+    await new Promise<void>(resolve => child.once('exit', () => resolve()));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
