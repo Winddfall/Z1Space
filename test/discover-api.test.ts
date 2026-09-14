@@ -180,6 +180,8 @@ printf '%s\n' '{"Data":[{"Title":"AI 产品实战复盘","AuthorName":"知乎用
     assert.ok(progressed.timeline.some(item => item.text.includes('理解你的目标')));
     assert.ok(progressed.timeline.some(item => item.text.includes('有结果了')));
     assert.equal(progressed.discoveryIntent.intent, 'discover_people');
+    assert.equal(progressed.discoveryIntent.query, '寻找关注 AI 产品入口和交互取舍、愿意分享实践经验的人。 AI 产品 交互');
+    assert.doesNotMatch(progressed.discoveryIntent.query, /真实用户访谈|亲自验证交互方案/);
     assert.equal(progressed.discoveryIntent.sourceRunId, run.id);
     assert.equal(progressed.discoveryIntent.constraints.targetType, 'person');
     assert.deepEqual(progressed.discoveryIntent.constraints.keywords, ['AI', '产品', '交互']);
