@@ -13,7 +13,7 @@ import { OAuthStateStore } from './auth/oauth-state.ts';
 import { authorizationUrl, exchangeCode, fetchUser, fetchUserData } from './zhihu/zhihu-oauth-client.ts';
 import { readZhihuOAuthConfig } from './zhihu/oauth-config.ts';
 import { redirect } from './http/response.ts';
-import { searchZhihuUsers, zhihuAuthorId } from './zhihu/skill-search.ts';
+import { searchZhihu, zhihuAuthorId, zhihuContentId } from './zhihu/skill-search.ts';
 import { HumanChatError, HumanChatStore } from './human-chat/store.ts';
 import type { HumanUser } from './human-chat/types.ts';
 import { FakeA2ASessionAdapter, InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort } from './a2a-adapter.ts';
@@ -21,10 +21,11 @@ import { createA2ASession, runA2ASession, type A2ASession, type RecommendationSn
 import { extractSkillDiscoveryIntent } from './skill-discovery-bridge.ts';
 
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
-type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
+type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
 type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string };
-type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; people: Record<string, Person>; llmReady?: boolean; llmError?: string };
+type Post = { id: string; person: string; kind: '发布' | '分享' | '赞同'; time: string; title: string; text: string; full: string; likes: number; author?: string; url?: string; source?: 'zhihu' | 'demo' };
+type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; contentMatches: string[]; people: Record<string, Person>; posts: Record<string, Post>; llmReady?: boolean; llmError?: string };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
 type ProfileSynthesis = { titles: string[]; impressions: string[]; usedPublicFacts: boolean; provider: 'deepseek' | 'fallback' };
 
@@ -62,11 +63,12 @@ const contents: ContentCandidate[] = [
 ];
 
 const dynamicPeople = new Map<string, Person>();
+const dynamicPosts = new Map<string, Post>();
 const candidateProfileProvider = new InMemoryCandidateProfileProvider(Object.fromEntries(Object.values(people).map(person => [person.id, buildAgentContextSnapshot({ profileVersion: 1, profileConfirmedAt: '2026-09-14T00:00:00.000Z', impressions: [`${person.name}的公开身份与实践方向：${person.role}。`, `${person.name}的公开介绍：${person.bio}`, `${person.name}愿意围绕这个公开话题交流：${person.topic}`], profileSourceReferences: [[`candidate:${person.id}:role`], [`candidate:${person.id}:bio`], [`candidate:${person.id}:topic`]], profilePublicBoundaries: ['public', 'public', 'public'] }, person.id)])));
 const a2aAdapter = new FakeA2ASessionAdapter();
 const f05DraftPort = new InMemoryF05InvitationDraftPort();
 
-function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: ['chen', 'xia', 'zhou'], contentIds: [], lastView: 'discover', agentChats: {} }; }
+function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: ['chen', 'xia', 'zhou'], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
 function json(res: ServerResponse, status: number, body: unknown) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(body)); }
 class RequestBodyTooLarge extends Error {}
 async function body(req: IncomingMessage, maxBytes = Infinity) { let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > maxBytes) throw new RequestBodyTooLarge(); } return raw ? JSON.parse(raw) : {}; }
