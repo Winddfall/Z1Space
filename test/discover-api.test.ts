@@ -180,10 +180,35 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(staleRecommendation.status, 409);
     assert.deepEqual(await staleRecommendation.json(), { error: 'PROFILE_VERSION_CHANGED' });
 
-    await Promise.all(Array.from({ length: 34 }, () => fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers })));
+    const churnResponses = await Promise.all(Array.from({ length: 34 }, () => fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers })));
     const expiredRecommendation = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'evicted-snapshot' }) });
     assert.equal(expiredRecommendation.status, 404);
     assert.deepEqual(await expiredRecommendation.json(), { error: 'RECOMMENDATION_NOT_FOUND' });
+
+    const retryAfterSnapshotEviction = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'golden-a2a' }) });
+    assert.equal(retryAfterSnapshotEviction.status, 202);
+    assert.equal((await retryAfterSnapshotEviction.json() as { id: string }).id, createdA2A.id);
+
+    const oversizedRequest = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: eligible.id, idempotencyKey: 'x'.repeat(2_100) }) });
+    assert.equal(oversizedRequest.status, 413);
+    assert.deepEqual(await oversizedRequest.json(), { error: 'REQUEST_TOO_LARGE' });
+
+    const latestDiscover = await churnResponses.at(-1)!.json() as { recommendations: { id: string; a2aEligible: boolean }[] };
+    const retainedRecommendation = latestDiscover.recommendations.find(item => item.a2aEligible);
+    assert.ok(retainedRecommendation);
+    let firstBoundedSessionId = '';
+    for (let index = 0; index < 21; index += 1) {
+      const response = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: retainedRecommendation.id, idempotencyKey: `bounded-${index}` }) });
+      assert.equal(response.status, 202);
+      const created = await response.json() as { id: string };
+      if (!firstBoundedSessionId) firstBoundedSessionId = created.id;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const current = await fetch(`${baseUrl}/api/a2a-sessions/${created.id}`, { headers });
+        if (current.status === 200 && ['completed', 'failed'].includes((await current.json() as { status: string }).status)) break;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    }
+    assert.equal((await fetch(`${baseUrl}/api/a2a-sessions/${firstBoundedSessionId}`, { headers })).status, 404);
   } finally {
     child.kill();
     await new Promise(resolve => child.once('exit', resolve));

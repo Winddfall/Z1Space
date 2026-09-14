@@ -30,6 +30,14 @@ test('runs exactly three evidence-bounded rounds and produces an F05 handoff', a
   assert.ok(states.includes('running:3'));
 });
 
+test('bounds retained payloads in the fake F05 port', async () => {
+  const f05 = new InMemoryF05InvitationDraftPort();
+  const result = await runA2ASession(createA2ASession(recommendation, profile('requester'), profile('candidate')), new FakeA2ASessionAdapter('proceed'), f05);
+  assert.ok(result.f05Handoff);
+  for (let index = 0; index < 500; index += 1) await f05.createDraft(result.f05Handoff);
+  assert.equal(f05.payloads.length, 500);
+});
+
 test('rejects a Recommendation that is not eligible for A2A', () => {
   assert.throws(() => createA2ASession({ ...recommendation, a2aEligible: false }, profile('requester'), profile('candidate')), /A2A_NOT_ELIGIBLE/);
 });

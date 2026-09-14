@@ -70,5 +70,6 @@ export class FakeA2ASessionAdapter implements A2ASessionAdapter {
 
 export class InMemoryF05InvitationDraftPort implements F05InvitationDraftPort {
   readonly payloads: F05HandoffPayload[] = [];
-  async createDraft(payload: F05HandoffPayload) { this.payloads.push(payload); return { draftId: `draft-${this.payloads.length}`, status: 'draft' as const }; }
+  private nextId = 1;
+  async createDraft(payload: F05HandoffPayload) { this.payloads.push(payload); if (this.payloads.length > 500) this.payloads.shift(); return { draftId: `draft-${this.nextId++}`, status: 'draft' as const }; }
 }
