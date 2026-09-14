@@ -10,7 +10,7 @@ import { routeTrigger, type TriggerEvent } from './trigger-router.ts';
 import { clearSessionCookie, setSessionCookie, readCookie } from './auth/cookie.ts';
 import { SessionStore } from './auth/session-store.ts';
 import { OAuthStateStore } from './auth/oauth-state.ts';
-import { authorizationUrl, exchangeCode, fetchUser } from './zhihu/zhihu-oauth-client.ts';
+import { authorizationUrl, exchangeCode, fetchUser, fetchUserData } from './zhihu/zhihu-oauth-client.ts';
 import { readZhihuOAuthConfig } from './zhihu/oauth-config.ts';
 import { redirect } from './http/response.ts';
 import { searchZhihuUsers, zhihuAuthorId } from './zhihu/skill-search.ts';
@@ -23,7 +23,7 @@ type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?
 type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
 type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string };
-type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; llmReady?: boolean; llmError?: string };
+type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; people: Record<string, Person>; llmReady?: boolean; llmError?: string };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -63,7 +63,7 @@ const candidateProfileProvider = new InMemoryCandidateProfileProvider(Object.fro
 const a2aAdapter = new FakeA2ASessionAdapter();
 const f05DraftPort = new InMemoryF05InvitationDraftPort();
 
-function fresh(): AppState { return { version: 1, step: 'auth', name: '小林', impressions: [], skills: [], following: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: ['chen', 'xia', 'zhou'], contentIds: [], lastView: 'discover', agentChats: {} }; }
+function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: ['chen', 'xia', 'zhou'], contentIds: [], lastView: 'discover', agentChats: {} }; }
 function json(res: ServerResponse, status: number, body: unknown) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(body)); }
 class RequestBodyTooLarge extends Error {}
 async function body(req: IncomingMessage, maxBytes = Infinity) { let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > maxBytes) throw new RequestBodyTooLarge(); } return raw ? JSON.parse(raw) : {}; }
@@ -79,9 +79,9 @@ function humanUser(req: IncomingMessage, url: URL, res: ServerResponse): HumanUs
   return { id: `${sessionId(req, res)}:${selected}`, name: selected === 'b' ? '演示用户 B' : '演示用户 A' };
 }
 function profileDescription(skill: Skill) { const goal = String(skill.goal || '').trim().replace(/[。.!！?？]+$/, ''); return goal ? `正在通过 Agent：${goal}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`; }
-function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: [], llmReady: false }; }
+function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: [], people: {}, llmReady: false }; }
 function triggeredRun(skill: Skill, ownerId: string, profileSnapshot: AgentContextSnapshot): TriggeredRun { return { ...runFor(skill), ownerId, profileSnapshot }; }
-function publicRun(run: TriggeredRun) { const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run; return { ...value, people, profileVersion: run.profileSnapshot.profileVersion }; }
+function publicRun(run: TriggeredRun) { const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run; return { ...value, people: run.people, profileVersion: run.profileSnapshot.profileVersion }; }
 function trigger(type: TriggerEvent['type'], ownerId: string, payload: Record<string, unknown>, source: TriggerEvent['source'] = 'web'): TriggerEvent { const eventId = randomUUID(); return { schemaVersion: 1, eventId, type, occurredAt: new Date().toISOString(), source, actor: { userId: ownerId, sessionId: ownerId }, correlationId: eventId, payload }; }
 function snapshotFor(state: AppState, ownerId: string) { try { return buildAgentContextSnapshot(state, ownerId); } catch { return null; } }
 function routeError(res: ServerResponse, plan: { accepted: false; code: string }) { const status = plan.code === 'PROFILE_NOT_CONFIRMED' || plan.code === 'SKILL_DISABLED' ? 409 : 400; return json(res, status, { error: plan.code }); }
@@ -107,7 +107,7 @@ async function enrichRun(run: Run) {
     const results = await searchZhihuUsers(query, 10);
     for (const result of results) {
       const id = zhihuAuthorId(result);
-      if (!people[id]) people[id] = {
+      if (!run.people[id]) run.people[id] = {
         id,
         name: result.authorName,
         role: '知乎用户 · 来自知乎搜索',
@@ -127,16 +127,16 @@ async function enrichRun(run: Run) {
   }
   if (!process.env.DEEPSEEK_API_KEY || !run.matches.length) { run.llmReady = true; return; }
   try {
-    const candidateList = run.matches.map(id => people[id]).filter(Boolean).map(p => ({ id: p.id, name: p.name, role: p.role, bio: p.bio, tags: p.tags, topic: p.topic }));
+    const candidateList = run.matches.map(id => run.people[id]).filter(Boolean).map(p => ({ id: p.id, name: p.name, role: p.role, bio: p.bio, tags: p.tags, topic: p.topic }));
     const content = await deepseekChat([
       { role: 'system', content: '你是 Z1Space 的匹配 Agent。请基于用户 Skill 和候选人的公开简介，给出可靠、克制、有行动价值的匹配结果。只输出 JSON，格式为 {"matches":[{"id":"候选人id","reason":"不超过80字的匹配理由","opening":"一个适合用户继续询问对方 Agent 的问题"}],"summary":"不超过80字的总结"}。不要编造候选人资料。' },
       { role: 'user', content: JSON.stringify({ skill: run.skill, candidates: candidateList }) }
     ], { response_format: { type: 'json_object' }, max_tokens: 700 });
     const parsed = JSON.parse(content || '{}') as { matches?: { id: string; reason?: string; opening?: string }[]; summary?: string };
-    const enriched = (parsed.matches || []).filter(x => people[x.id]);
+    const enriched = (parsed.matches || []).filter(x => run.people[x.id]);
     if (enriched.length) run.matches = enriched.map(x => x.id);
     if (parsed.summary) run.timeline.push({ kind: 'agent', text: parsed.summary });
-    for (const match of enriched) { if (match.reason && people[match.id]) people[match.id].reason = match.reason; if (match.opening && people[match.id]) people[match.id].topic = match.opening; }
+    for (const match of enriched) { if (match.reason && run.people[match.id]) run.people[match.id].reason = match.reason; if (match.opening && run.people[match.id]) { run.people[match.id].topic = match.opening; run.people[match.id].greeting = `你好，关于“${query}”，我想和你继续交流：${match.opening}`; } }
   } catch (error) { run.llmError = error instanceof Error ? error.message : 'DeepSeek request failed'; run.timeline.push({ kind: 'agent', text: '模型暂时不可用，我先用知乎搜索结果继续。' }); }
   run.llmReady = true;
 }
@@ -167,7 +167,7 @@ const server = createServer(async (req, res) => {
       if (providerError) { oauthStates.consume(state, session.id); return authError(res, '你取消了知乎授权，请重试。'); }
       if (!oauthStates.consume(state, session.id)) return authError(res, '授权状态已失效，请重新开始知乎授权。');
       if (!code) return authError(res, '知乎没有返回授权码。');
-      try { const token = await exchangeCode(zhihuOAuth, code); const user = await fetchUser(token.accessToken); authSessions.setToken(session.id, token, user); setSessionCookie(res, session.id, secureCookies(req)); return redirect(res, '/?auth=success'); }
+      try { const token = await exchangeCode(zhihuOAuth, code); const user = await fetchUser(token.accessToken); const userData = await fetchUserData(zhihuOAuth.accessSecret, token.accessToken); authSessions.setToken(session.id, token, user, userData); setSessionCookie(res, session.id, secureCookies(req)); return redirect(res, '/?auth=success'); }
       catch (error) { console.error('Zhihu OAuth callback failed:', error instanceof Error ? error.message : 'unknown error'); return authError(res, '知乎授权完成了，但读取公开资料失败，请稍后重试。'); }
     }
     if (url.pathname === '/auth/logout' && req.method === 'POST') { const id = readCookie(req, 'z1_session'); if (id) authSessions.delete(id); clearSessionCookie(res); return json(res, 200, { ok: true }); }
