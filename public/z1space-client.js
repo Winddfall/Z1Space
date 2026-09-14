@@ -10,27 +10,75 @@
   async function loadAuthSession() {
     try { const response = await fetch('/api/auth/session', { credentials: 'same-origin' }); authSession = await response.json(); return authSession; } catch { authSession = { mode: 'demo', authenticated: false, oauthConfigured: false }; return authSession; }
   }
+  function isRealZhihuProfile() { return state.profileSource === 'zhihu' && Boolean(state.zhihuUser); }
+  function impressionSources() {
+    return isRealZhihuProfile()
+      ? ['知乎公开一句话介绍', '知乎公开个人简介', '授权范围与画像边界']
+      : ['知乎公开资料', '知乎公开资料', '授权范围与画像边界'];
+  }
+  window.z1spaceImpressionSources = impressionSources;
+  function zhihuIdentity(user) {
+    if (!user) return '知乎账号';
+    const id = String(user.id || '').trim();
+    const hashId = String(user.hashId || '').trim();
+    if (id && hashId) return `知乎用户 ID：${id} · hash ID：${hashId}`;
+    return id ? `知乎用户 ID：${id}` : (hashId ? `知乎 hash ID：${hashId}` : '知乎账号');
+  }
+  function zhihuProfileMeta(user) {
+    if (!user) return '';
+    const identity = zhihuIdentity(user);
+    const url = String(user.url || '').trim();
+    return url ? `${identity} · ${url.replace(/^https?:\/\//, '')}` : identity;
+  }
+  function zhihuImpressions(user, userData = {}) {
+    const name = String(user.fullname || '这位知乎用户').trim();
+    const headline = String(user.headline || '').trim();
+    const description = String(user.description || '').trim();
+    const titles = Array.isArray(userData.contentItems) ? userData.contentItems.map(item => String(item.title || '').trim()).filter(Boolean).slice(0, 3) : [];
+    return [
+      headline ? `你在知乎公开资料中将自己介绍为「${headline}」。` : `${name} 已连接知乎，但公开资料中暂无一句话介绍。`,
+      description ? `从你的知乎公开简介来看：${description}` : '你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。',
+      titles.length ? `你最近公开分享过「${titles.join('」「')}」，这些内容会成为 Agent 理解你的真实线索。` : '暂未读取到你的公开回答或文章，Agent 不会据此臆测你的兴趣。'
+    ];
+  }
   function applyZhihuUser(user) {
     if (!user) return;
     state.name = user.fullname || state.name;
     state.zhihuUser = user;
+    if (authSession?.userData) state.zhihuUserData = authSession.userData;
+    if (state.profileSource !== 'manual') state.impressions = zhihuImpressions(user, state.zhihuUserData);
+    state.profileSource = 'zhihu';
     if (state.step === 'auth') state.step = 'impressions';
     persist();
+  }
+  function migrateZhihuProfile() {
+    if (!state.zhihuUser || state.profileSource === 'manual') return false;
+    const changed = state.profileSource !== 'zhihu' || state.name !== state.zhihuUser.fullname;
+    state.profileSource = 'zhihu';
+    state.name = state.zhihuUser.fullname || state.name;
+    if (!Array.isArray(state.impressions) || !state.impressions.length || state.impressions.join('') === initialImpressions.join('')) state.impressions = zhihuImpressions(state.zhihuUser, state.zhihuUserData);
+    return changed;
   }
   renderAuth = function () {
     originalRenderAuth();
     const note = document.querySelector('.auth-card .demo-note');
     const button = document.getElementById('authorize');
     if (!button) return;
+    button.disabled = true;
+    button.onclick = () => {};
     loadAuthSession().then(auth => {
       if (auth.authenticated && auth.user) { applyZhihuUser(auth.user); render(); return; }
       if (auth.oauthConfigured) {
         if (note) note.textContent = '知乎 OAuth 真实接入模式 · 只读取你授权的公开资料，OAuth Token 仅保存在服务端。';
         button.innerHTML = '同意授权，连接知乎 ' + icon('arrow');
         const consent = document.getElementById('consent');
+        button.disabled = !consent?.checked;
+        if (consent) consent.onchange = () => { button.disabled = !consent.checked; };
         button.onclick = () => { if (!consent?.checked) return; button.disabled = true; button.innerHTML = '<span class="loading"></span> 正在跳转知乎授权'; window.location.assign('/auth/zhihu/start'); };
-      } else if (note) {
-        note.textContent = '演示模式 · 当前未配置知乎 OAuth 应用，将使用“小林”的示例资料；不会连接真实知乎账号。';
+      } else {
+        if (note) note.textContent = '当前未配置知乎 OAuth 应用，暂时无法读取真实账号资料。';
+        button.innerHTML = '暂时无法连接知乎';
+        button.disabled = true;
       }
       const params = new URLSearchParams(location.search);
       if (params.get('auth') === 'error') toast(params.get('reason') || '知乎授权未完成，请重试。');
@@ -44,6 +92,33 @@
   const profileText = skill => skill.profileDescription || (skill.goal ? `正在通过 Agent：${skill.goal.replace(/[。.!！?？]+$/, '')}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`);
   const originalSaveSkill = saveSkill;
   saveSkill = function (form) { originalSaveSkill(form); const last = state.skills[state.skills.length - 1]; if (last) { last.profileTitle = last.name; last.profileDescription = profileText(last); persist(); } };
+  function profileCount(value) { return Number.isFinite(Number(value)) ? `${Number(value)} 个` : '暂未读取'; }
+  function profileContentCount(type) {
+    const items = state.zhihuUserData?.contentItems || [];
+    return items.filter(item => item.contentType === type).length;
+  }
+  function replaceRealProfile(html) {
+    if (!isRealZhihuProfile()) return html;
+    const user = state.zhihuUser;
+    const data = state.zhihuUserData || {};
+    const name = esc(user.fullname || state.name || '知乎用户');
+    const headline = esc(user.headline || user.description || '知乎公开资料已连接');
+    const avatar = String(user.avatarPath || '').trim();
+    const answers = data.answerCount;
+    const articles = data.articleCount;
+    const followees = data.followeeCount;
+    return html
+      .replaceAll('你好，这是你公开资料里的画像。', `你好，${name}。这是你公开资料里的画像。`)
+      .replaceAll('从你的知乎表达中，形成三段印象。你可以自由修改，让分身更像自己。', '基于你授权的知乎公开资料，形成三段可编辑的印象。')
+      .replace(`<h3>${name}</h3><p>知乎公开资料已连接</p>`, `<h3>${name}</h3><p>${headline}</p><small class="profile-source-id">${esc(zhihuProfileMeta(user))}</small>`)
+      .replace('<span>公开回答</span><b>暂未读取</b>', `<span>公开回答</span><b>${answers === undefined ? '暂未读取' : `${answers} 篇`}</b>`)
+      .replace('<span>公开文章</span><b>暂未读取</b>', `<span>公开文章</span><b>${articles === undefined ? '暂未读取' : `${articles} 篇`}</b>`)
+      .replace('<span>关注用户</span><b>暂未读取</b>', `<span>关注用户</span><b>${profileCount(followees)}</b>`)
+            .replace(/<img([^>]*class="avatar[^"]*"[^>]*)src="[^"]*"/g, avatar ? `<img$1src="${esc(avatar)}"` : '$&');
+  }
+  const originalRenderImpressions = renderImpressions;
+  renderImpressions = function () { originalRenderImpressions(); const app = document.getElementById('app'); if (app) app.innerHTML = replaceRealProfile(app.innerHTML); bindImpressionCounters(); };
+
   const originalProfileView = profileView;
   profileView = function () { let html = originalProfileView(); const entries = state.skills.map(s => `<div class="profile-impression"><span>${skillIcon(s)}</span><div><h3>${esc(s.profileTitle || s.name)}</h3><p>${esc(profileText(s))}</p></div></div>`).join(''); if (entries) html = html.replace('</section><div class="demo-settings">', `<div class="profile-section"><h2>${icon('spark')} 由任务形成的画像</h2>${entries}</div></section><div class="demo-settings">`); return html; };
 
@@ -114,9 +189,19 @@
   style.textContent = `.agent-message-panel{margin:0 0 28px;padding:24px;background:linear-gradient(145deg,#fff,#f8faff);border:1px solid #e6ebf5;border-radius:22px;box-shadow:0 12px 30px rgba(35,68,132,.06)}.agent-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.agent-panel-head h2{margin:5px 0 0;font-size:22px}.agent-status-pill,.agent-live-dot{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:#eef2f8;color:#77849a;font-size:12px;font-weight:700}.agent-status-pill.done{background:#e9f8f1;color:#1b9b68}.agent-live-dot{background:#eaf8f1;color:#14855a}.agent-live-dot:before{content:'';width:7px;height:7px;border-radius:50%;background:#25b977;box-shadow:0 0 0 4px #d9f3e7}.agent-timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0 16px}.agent-stage{display:flex;align-items:center;gap:9px;color:#a1acbd;font-size:13px}.agent-stage span{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#eef1f6;font-size:11px;font-weight:700}.agent-stage.current{color:#2459ec}.agent-stage.current span{background:#e8efff;color:#2459ec}.agent-stage.done{color:#27976a}.agent-stage.done span{background:#e5f7ee;color:#27976a}.agent-stage p{margin:0;color:inherit}.agent-summary{padding:13px 15px;border-radius:13px;background:#f2f5fb;color:#5c6d87;font-size:13px;line-height:1.7}.agent-results-head{display:flex;align-items:end;justify-content:space-between;margin:24px 0 12px}.agent-results-head h3{margin:4px 0 0;font-size:17px}.agent-person-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.agent-person-card{padding:17px;border:1px solid #e5eaf3;border-radius:16px;background:#fff;transition:transform .16s,box-shadow .16s}.agent-person-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(35,68,132,.1)}.agent-card-top,.agent-person-head{display:flex;align-items:center;gap:11px}.agent-person-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#dfe8ff,#f5dfe8);color:#3c5cbb;font-weight:800}.agent-person-card h3,.agent-person-head h2{margin:0;font-size:16px}.agent-person-card p,.agent-person-head p{margin:2px 0 0;color:#8793a7;font-size:12px}.agent-tags{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px}.agent-tags span{padding:4px 8px;border-radius:6px;background:#f1f4f9;color:#708099;font-size:11px}.agent-reason{min-height:44px!important;color:#60718b!important;line-height:1.7}.agent-person-card .button{margin-top:7px}.agent-empty{padding:28px;text-align:center;color:#8c98aa}.agent-chat-panel{padding-bottom:17px}.agent-chat-panel .agent-panel-head{align-items:center}.agent-chat-panel .text-button{padding:0}.agent-context{margin:20px 0 15px;padding:13px 15px;border-radius:13px;background:#f2f5fb;display:flex;flex-direction:column;gap:4px}.agent-context span{font-size:11px;color:#8b98ac}.agent-context b{font-size:14px;color:#455975}.agent-message-list{max-height:390px;overflow:auto;padding:3px 3px 10px}.agent-bubble{max-width:78%;margin:10px 0;padding:11px 14px;border-radius:14px 14px 14px 4px;background:#f0f3f8;color:#43546f}.agent-bubble.mine{margin-left:auto;border-radius:14px 14px 4px 14px;background:#2459ec;color:#fff}.agent-bubble small{display:block;margin-bottom:4px;font-size:10px;opacity:.68}.agent-bubble p{margin:0;color:inherit;font-size:13px;line-height:1.7}.agent-compose{display:flex;align-items:end;gap:10px;padding-top:13px;border-top:1px solid #edf0f5}.agent-compose textarea{flex:1;min-height:48px;max-height:110px;padding:11px 13px;border:1px solid #dfe5ef;border-radius:12px;resize:vertical;font-size:13px;background:#fff}.agent-compose textarea:focus{border-color:#8daaf6;outline:3px solid #e8efff}.agent-compose .button{flex:0 0 auto}.muted{font-size:12px;color:#8c98aa}@media(max-width:720px){.agent-message-panel{padding:17px;border-radius:17px}.agent-timeline{grid-template-columns:1fr;gap:7px}.agent-person-grid{grid-template-columns:1fr}.agent-results-head{align-items:start}.agent-bubble{max-width:90%}.agent-compose{align-items:stretch;flex-direction:column}.agent-compose .button{width:100%}}`;
   document.head.appendChild(style);
 
-  if (state.step === 'auth') renderAuth();
+  if (state.step === 'auth') {
+    renderAuth();
+  } else {
+    loadAuthSession().then(auth => {
+      if (auth.authenticated && auth.user) {
+        const previousUserId = state.zhihuUser?.id;
+        applyZhihuUser(auth.user);
+        if (previousUserId !== auth.user.id || state.profileSource === 'zhihu') render();
+      }
+    }).catch(() => {});
+  }
 
-  getState().then(remote => { if (!remote || !remote.version) return; const localHasProgress = state.step !== 'auth' || state.skills?.length || state.impressions?.length || state.following?.length || Object.keys(state.chats || {}).length; const remoteHasProgress = remote.step !== 'auth' || remote.skills?.length || remote.impressions?.length || remote.following?.length || Object.keys(remote.chats || {}).length || remote.agentRuns?.length; if (remoteHasProgress || !localHasProgress) { state = { ...state, ...remote }; try { render(); } catch {} } else { saveState(state); } }).catch(() => {});
+  getState().then(remote => { if (!remote || !remote.version) return; const localHasProgress = state.step !== 'auth' || state.skills?.length || state.impressions?.length || state.following?.length || Object.keys(state.chats || {}).length; const remoteHasProgress = remote.step !== 'auth' || remote.skills?.length || remote.impressions?.length || remote.following?.length || Object.keys(remote.chats || {}).length || remote.agentRuns?.length; if (remoteHasProgress || !localHasProgress) { state = { ...state, ...remote }; if (migrateZhihuProfile()) persist(); try { render(); } catch {} } else { saveState(state); } }).catch(() => {});
 
   /* F05 真人聊天：服务端持久化的邀请、会话和消息。与 Agent 对话保持独立。 */
   const humanDemoUser = new URLSearchParams(location.search).get('demoUser') || localStorage.getItem('z1space-demo-user') || 'a';

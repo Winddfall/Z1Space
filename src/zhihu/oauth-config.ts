@@ -4,6 +4,7 @@ export type ZhihuOAuthConfig = {
   redirectUri: string;
   authorizeUrl: string;
   tokenUrl: string;
+  accessSecret: string;
   configured: boolean;
 };
 
@@ -13,5 +14,6 @@ export function readZhihuOAuthConfig(env = process.env): ZhihuOAuthConfig {
   const redirectUri = env.ZHIHU_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/zhihu/callback';
   const authorizeUrl = env.ZHIHU_OAUTH_AUTHORIZE_URL || 'https://openapi.zhihu.com/authorize';
   const tokenUrl = env.ZHIHU_OAUTH_TOKEN_URL || 'https://openapi.zhihu.com/access_token';
-  return { appId, appKey, redirectUri, authorizeUrl, tokenUrl, configured: Boolean(appId && appKey && redirectUri) };
+  const accessSecret = env.ZHIHU_ACCESS_SECRET || '';
+  return { appId, appKey, redirectUri, authorizeUrl, tokenUrl, accessSecret, configured: Boolean(appId && appKey && redirectUri) };
 }
