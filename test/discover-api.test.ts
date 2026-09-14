@@ -144,6 +144,10 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(run.profileVersion, 3);
     assert.deepEqual(run.matches, []);
 
+    const prematureDiscover = await fetch(`${baseUrl}/api/discover/people?run_id=${run.id}`, { headers });
+    assert.equal(prematureDiscover.status, 409);
+    assert.deepEqual(await prematureDiscover.json(), { error: 'RUN_NOT_COMPLETED' });
+
     const spoofedRunResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers: { ...baseHeaders, 'x-z1-session': goldenSessionId } });
     assert.equal(spoofedRunResponse.status, 404);
 
@@ -165,11 +169,40 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
 
     const progressedResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers });
     assert.equal(progressedResponse.status, 200);
-    const progressed = await progressedResponse.json() as { status: string; stage: number; timeline: { text: string }[] };
+    const progressed = await progressedResponse.json() as { status: string; stage: number; timeline: { text: string }[]; discoveryIntent: { intent: string; query: string; topic: string; constraints: { targetType: string; keywords: string[] }; sourceRunId: string } };
     assert.equal(progressed.status, 'completed');
     assert.equal(progressed.stage, 3);
     assert.ok(progressed.timeline.some(item => item.text.includes('理解你的目标')));
     assert.ok(progressed.timeline.some(item => item.text.includes('有结果了')));
+    assert.equal(progressed.discoveryIntent.intent, 'discover_people');
+    assert.equal(progressed.discoveryIntent.sourceRunId, run.id);
+    assert.equal(progressed.discoveryIntent.constraints.targetType, 'person');
+    assert.deepEqual(progressed.discoveryIntent.constraints.keywords, ['AI', '产品', '交互']);
+
+    const bridgedDiscoverResponse = await fetch(`${baseUrl}/api/discover/people?run_id=${run.id}&limit=3`, { headers });
+    assert.equal(bridgedDiscoverResponse.status, 200);
+    const bridgedDiscover = await bridgedDiscoverResponse.json() as { sourceIntent: typeof progressed.discoveryIntent; candidates: { id: string }[]; recommendations: { id: string; targetType: string; a2aEligible: boolean; a2aSessionEndpoint?: string }[] };
+    assert.deepEqual(bridgedDiscover.sourceIntent, progressed.discoveryIntent);
+    assert.deepEqual(bridgedDiscover.candidates.map(candidate => candidate.id), ['chen', 'xia', 'zhou']);
+    assert.ok(bridgedDiscover.recommendations.every(item => item.targetType === 'person'));
+    assert.ok(bridgedDiscover.recommendations.filter(item => item.a2aEligible).every(item => item.a2aSessionEndpoint === '/api/a2a-sessions'));
+    assert.ok(bridgedDiscover.recommendations.filter(item => !item.a2aEligible).every(item => item.a2aSessionEndpoint === undefined));
+
+    const bridgedEligible = bridgedDiscover.recommendations.find(item => item.a2aEligible);
+    assert.ok(bridgedEligible);
+    const bridgedA2AResponse = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ recommendationId: bridgedEligible.id, idempotencyKey: 'skill-bridge-a2a' }) });
+    assert.equal(bridgedA2AResponse.status, 202);
+    const bridgedA2A = await bridgedA2AResponse.json() as { id: string };
+    let bridgedSession: { status: string; turns: unknown[]; observation?: unknown } | undefined;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/a2a-sessions/${bridgedA2A.id}`, { headers });
+      bridgedSession = await response.json() as typeof bridgedSession;
+      if (bridgedSession?.status === 'completed') break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(bridgedSession?.status, 'completed');
+    assert.equal(bridgedSession?.turns.length, 6);
+    assert.ok(bridgedSession?.observation);
 
     const changedProfile = { ...goldenProfileState, profileVersion: 4 };
     assert.equal((await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers, body: JSON.stringify(changedProfile) })).status, 200);
