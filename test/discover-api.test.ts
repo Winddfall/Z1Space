@@ -40,12 +40,16 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     env: { ...process.env, PORT: String(port), Z1SPACE_DATA_DIR: dataDir, DEEPSEEK_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  const headers = { 'content-type': 'application/json', 'x-z1-session': goldenSessionId };
+  const baseHeaders = { 'content-type': 'application/json' };
 
   try {
     await waitForServer(baseUrl, child);
-    const saved = await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers, body: JSON.stringify(goldenProfileState) });
+    const saved = await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers: baseHeaders, body: JSON.stringify(goldenProfileState) });
     assert.equal(saved.status, 200);
+    const cookie = saved.headers.get('set-cookie')?.split(';')[0];
+    assert.ok(cookie?.startsWith('z1space_session='));
+    assert.match(saved.headers.get('set-cookie') || '', /HttpOnly; SameSite=Strict/);
+    const headers = { ...baseHeaders, cookie };
 
     const peopleResponse = await fetch(`${baseUrl}/api/discover/people?skill_id=golden-people-skill&limit=3`, { headers });
     assert.equal(peopleResponse.status, 200);
@@ -64,9 +68,9 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
 
     const contentResponse = await fetch(`${baseUrl}/api/discover/content?q=${encodeURIComponent('知识管理')}`, { headers });
     assert.equal(contentResponse.status, 200);
-    const content = await contentResponse.json() as { candidates: { id: string }[]; recommendations: { evidenceRefs: unknown[] }[] };
+    const content = await contentResponse.json() as { candidates: { id: string }[]; recommendations: { evidenceRefs: { sourceType: string }[] }[] };
     assert.deepEqual(content.candidates.map(candidate => candidate.id), ['p5']);
-    assert.equal(content.recommendations[0].evidenceRefs.length, 2);
+    assert.deepEqual(content.recommendations[0].evidenceRefs.map(item => item.sourceType), ['content']);
 
     const emptyResponse = await fetch(`${baseUrl}/api/discover/people?q=${encodeURIComponent('量子农业')}`, { headers });
     assert.equal(emptyResponse.status, 200);
@@ -74,8 +78,7 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.deepEqual(empty.candidates, []);
     assert.deepEqual(empty.recommendations, []);
 
-    const invalidProfileHeaders = { ...headers, 'x-z1-session': 'invalid-profile-session' };
-    const invalidProfileResponse = await fetch(`${baseUrl}/api/discover/people?q=AI`, { headers: invalidProfileHeaders });
+    const invalidProfileResponse = await fetch(`${baseUrl}/api/discover/people?q=AI`, { headers: baseHeaders });
     assert.equal(invalidProfileResponse.status, 409);
     assert.deepEqual(await invalidProfileResponse.json(), { error: 'PROFILE_NOT_CONFIRMED' });
 
@@ -91,12 +94,25 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(run.profileVersion, 3);
     assert.deepEqual(run.matches, ['chen', 'xia']);
 
+    const spoofedRunResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers: { ...baseHeaders, 'x-z1-session': goldenSessionId } });
+    assert.equal(spoofedRunResponse.status, 404);
+
+    const missingRunResponse = await fetch(`${baseUrl}/api/discover/people?run_id=missing`, { headers });
+    assert.equal(missingRunResponse.status, 404);
+    assert.deepEqual(await missingRunResponse.json(), { error: 'RUN_NOT_FOUND' });
+
     const reusedResponse = await fetch(`${baseUrl}/api/runs`, { method: 'POST', headers, body: JSON.stringify({ skill: goldenProfileState.skills[0] }) });
     assert.equal(reusedResponse.status, 202);
     const reused = await reusedResponse.json() as { id: string };
     assert.equal(reused.id, run.id);
 
     await new Promise(resolve => setTimeout(resolve, 2_000));
+    const restartedResponse = await fetch(`${baseUrl}/api/runs`, { method: 'POST', headers, body: JSON.stringify({ skill: goldenProfileState.skills[0] }) });
+    assert.equal(restartedResponse.status, 202);
+    const restarted = await restartedResponse.json() as { id: string; status: string };
+    assert.notEqual(restarted.id, run.id);
+    assert.equal(restarted.status, 'running');
+
     const progressedResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers });
     assert.equal(progressedResponse.status, 200);
     const progressed = await progressedResponse.json() as { status: string; stage: number; timeline: { text: string }[] };

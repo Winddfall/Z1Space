@@ -40,16 +40,24 @@ export type RoutePlan =
 const EVENT_TYPES = new Set<TriggerEventType>([
   'agent_profile.confirmed', 'skill_run.requested', 'skill_run.completed', 'explore.requested', 'content_interaction.recorded'
 ]);
+const SUBJECT_KINDS = new Set(['profile', 'skill', 'run', 'content']);
 
 export function isTriggerEvent(value: unknown): value is TriggerEvent {
   if (!value || typeof value !== 'object') return false;
   const event = value as Partial<TriggerEvent>;
+  const sessionIdValid = event.actor?.sessionId === undefined || (typeof event.actor.sessionId === 'string' && event.actor.sessionId.length > 0);
+  const subjectValid = event.subject === undefined || (!!event.subject && typeof event.subject === 'object'
+    && SUBJECT_KINDS.has(event.subject.kind)
+    && typeof event.subject.id === 'string' && event.subject.id.length > 0
+    && (event.subject.version === undefined || (Number.isInteger(event.subject.version) && Number(event.subject.version) > 0)));
+  const idempotencyKeyValid = event.idempotencyKey === undefined || (typeof event.idempotencyKey === 'string' && event.idempotencyKey.length > 0);
   return event.schemaVersion === 1
     && typeof event.eventId === 'string' && event.eventId.length > 0
     && typeof event.type === 'string' && EVENT_TYPES.has(event.type as TriggerEventType)
     && typeof event.occurredAt === 'string' && !Number.isNaN(Date.parse(event.occurredAt))
     && (event.source === 'web' || event.source === 'skill-runner' || event.source === 'system')
     && !!event.actor && typeof event.actor.userId === 'string' && event.actor.userId.length > 0
+    && sessionIdValid && subjectValid && idempotencyKeyValid
     && typeof event.correlationId === 'string' && event.correlationId.length > 0
     && !!event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload);
 }
@@ -69,7 +77,7 @@ export function routeTrigger(event: unknown, context: RouterContext): RoutePlan 
       : reject('INVALID_EVENT');
   }
 
-  if (!context.profile) return reject('PROFILE_NOT_CONFIRMED');
+  if (!context.profile?.confirmedAt) return reject('PROFILE_NOT_CONFIRMED');
 
   if (event.type === 'skill_run.requested') {
     const skillId = event.payload.skillId;

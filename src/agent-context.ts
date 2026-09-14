@@ -54,7 +54,7 @@ function sourceReferences(value: unknown, index: number) {
 }
 
 function publicBoundary(value: unknown, index: number): PublicBoundary {
-  if (value === undefined) return 'public';
+  if (value === undefined) return 'private';
   if (value !== 'public' && value !== 'private') throw new Error(`PROFILE_PUBLIC_BOUNDARY_${index + 1}_INVALID`);
   return value;
 }

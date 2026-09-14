@@ -6,11 +6,13 @@ import { recallContent, recallPeople } from '../src/explore.ts';
 import { isTriggerEvent, routeTrigger, type RouterContext, type TriggerEvent } from '../src/trigger-router.ts';
 
 const profile = buildAgentContextSnapshot({
+  profileConfirmedAt: '2026-09-14T00:00:00.000Z',
   impressions: [
     '关注具体问题和产品取舍。',
     '愿意动手验证技术想法。',
     '希望与人平等交流经验。'
-  ]
+  ],
+  profilePublicBoundaries: ['public', 'public', 'public']
 }, 'user-1');
 
 const context: RouterContext = {
@@ -55,6 +57,13 @@ test('builds and deeply freezes a Profile Snapshot with public boundaries', () =
   assert.equal(Object.isFrozen(snapshot.sections[0].sourceReferences), true);
 });
 
+test('defaults omitted Profile boundaries to private', () => {
+  const snapshot = buildAgentContextSnapshot({
+    impressions: ['第一段有效的人物印象内容。', '第二段有效的人物印象内容。', '第三段有效的人物印象内容。']
+  }, 'owner-1');
+  assert.deepEqual(snapshot.sections.map(section => section.publicBoundary), ['private', 'private', 'private']);
+});
+
 test('rejects malformed Profile Snapshot input', () => {
   assert.throws(() => buildAgentContextSnapshot({ impressions: ['只有一段'] }, 'user-1'), /PROFILE_REQUIRES_THREE_IMPRESSIONS/);
   assert.throws(() => buildAgentContextSnapshot({ impressions: ['内容长度足够一二三', '内容长度足够一二三', '内容长度足够一二三'], profilePublicBoundaries: ['public', 'secret', 'public'] }, 'user-1'), /PROFILE_PUBLIC_BOUNDARY_2_INVALID/);
@@ -64,6 +73,9 @@ test('rejects malformed Profile Snapshot input', () => {
 test('rejects an invalid TriggerEvent', () => {
   assert.deepEqual(routeTrigger({ type: 'explore.requested' }, context), { accepted: false, code: 'INVALID_EVENT' });
   assert.equal(isTriggerEvent({ ...event('explore.requested', { target: 'people' }), occurredAt: 'not-a-date' }), false);
+  assert.equal(isTriggerEvent({ ...event('explore.requested', { target: 'people' }), actor: { userId: 'user-1', sessionId: 1 } }), false);
+  assert.equal(isTriggerEvent({ ...event('explore.requested', { target: 'people' }), subject: { kind: 'run', id: '', version: 0 } }), false);
+  assert.equal(isTriggerEvent({ ...event('explore.requested', { target: 'people' }), idempotencyKey: 1 }), false);
 });
 
 test('routes skill_run.requested to the existing runner destination', () => {
@@ -100,6 +112,14 @@ test('rejects triggers when the profile is not confirmed', () => {
     accepted: false,
     code: 'PROFILE_NOT_CONFIRMED'
   });
+  const unconfirmed = buildAgentContextSnapshot({
+    impressions: ['第一段有效的人物印象内容。', '第二段有效的人物印象内容。', '第三段有效的人物印象内容。'],
+    profilePublicBoundaries: ['public', 'public', 'public']
+  }, 'user-1');
+  assert.deepEqual(routeTrigger(event('explore.requested', { target: 'people' }), { ...context, profile: unconfirmed }), {
+    accepted: false,
+    code: 'PROFILE_NOT_CONFIRMED'
+  });
 });
 
 test('rejects a missing Skill', () => {
@@ -124,7 +144,8 @@ test('returns structured People and Content recommendations with evidence', () =
   assert.equal(typeof people.recommendations[0].metrics.topicRelevance, 'number');
   assert.equal(typeof people.recommendations[0].metrics.informationGain, 'number');
   assert.equal(typeof people.recommendations[0].metrics.explorableDivergence, 'number');
-  assert.equal(people.recommendations[0].metrics.evidenceStrength, 1);
+  assert.ok(people.recommendations[0].metrics.evidenceStrength >= 0.6);
+  assert.ok(people.recommendations[0].metrics.evidenceStrength < 1);
   assert.ok(['recommended', 'consider', 'not_recommended'].includes(people.recommendations[0].verdict));
   assert.equal(typeof people.recommendations[0].a2aEligible, 'boolean');
   assert.ok(people.recommendations[0].a2aReasons.length > 0);
@@ -150,6 +171,15 @@ test('never exposes private Profile sections as recommendation evidence', () => 
     profilePublicBoundaries: ['private', 'private', 'private']
   }, 'user-1');
   assert.deepEqual(recallPeople([{ id: 'person-1', name: '甲', role: '研究员', bio: '研究量子农业', tags: ['量子农业'] }], '量子农业', fullyPrivate).candidates, []);
+});
+
+test('does not use an unrelated public Profile section as evidence', () => {
+  const unrelatedProfile = buildAgentContextSnapshot({
+    impressions: ['这是一段公开的烘焙经验总结。', '这是一段有效的私密兴趣信息。', '这是一段有效的私密交流偏好。'],
+    profilePublicBoundaries: ['public', 'private', 'private']
+  }, 'user-1');
+  const result = recallPeople([{ id: 'person-1', name: '甲', role: '研究员', bio: '研究量子农业', tags: ['量子农业'] }], '量子农业', unrelatedProfile);
+  assert.deepEqual(result.recommendations[0].evidenceRefs.map(item => item.sourceType), ['candidate']);
 });
 
 test('keeps the A2A adapter independent and opt-in', async () => {
