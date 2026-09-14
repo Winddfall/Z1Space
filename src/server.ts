@@ -74,6 +74,27 @@ function sessionId(req: IncomingMessage, res: ServerResponse) { const cached = r
 async function saveSessions() { await mkdir(dataDir, { recursive: true }); await writeFile(stateFile, JSON.stringify(Object.fromEntries(sessions), null, 2)); }
 async function loadSessions() { if (!existsSync(stateFile)) return; try { const saved = JSON.parse(await readFile(stateFile, 'utf8')); for (const [id, value] of Object.entries(saved)) sessions.set(id, value as AppState); } catch { /* a corrupt demo file should not block a fresh session */ } }
 function currentState(req: IncomingMessage, res: ServerResponse) { const id = sessionId(req, res); if (!sessions.has(id)) sessions.set(id, fresh()); return sessions.get(id)!; }
+function restoreStateForAuthenticatedUser(req: IncomingMessage, res: ServerResponse) {
+  const userId = authSession(req).user?.id;
+  if (!userId) return currentState(req, res);
+  const id = sessionId(req, res);
+  const current = currentState(req, res);
+  if (current.zhihuUser?.id === userId) return current;
+  const saved = [...sessions.values()].find(state => state.zhihuUser?.id === userId && state.step === 'done');
+  if (!saved) {
+    if (current.zhihuUser?.id && current.zhihuUser.id !== userId) {
+      const next = fresh();
+      sessions.set(id, next);
+      void saveSessions();
+      return next;
+    }
+    return current;
+  }
+  const restored = { ...fresh(), ...saved };
+  sessions.set(id, restored);
+  void saveSessions();
+  return restored;
+}
 function authSession(req: IncomingMessage) { return authSessions.getOrCreate(req); }
 function secureCookies(req: IncomingMessage) { return req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production'; }
 function authError(res: ServerResponse, message: string) { return redirect(res, `/?auth=error&reason=${encodeURIComponent(message)}`); }
@@ -263,7 +284,7 @@ const server = createServer(async (req, res) => {
       if (answers.length !== 3 || answers.some(answer => !answer)) return json(res, 400, { error: 'INVALID_PROFILE_ANSWERS' });
       return json(res, 200, await synthesizeProfile(answers, profilePublicFacts(req)));
     }
-    if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, currentState(req, res));
+    if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, restoreStateForAuthenticatedUser(req, res));
     if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); sessions.set(id, { ...fresh(), ...next, version: 1 }); await saveSessions(); return json(res, 200, sessions.get(id)); }
     if (url.pathname === '/api/runs' && req.method === 'POST') { const input = await body(req) as { skill?: Skill }; const state = currentState(req, res); const ownerId = sessionId(req, res);
       // Migrate sessions created by older clients: completing onboarding with
