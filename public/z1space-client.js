@@ -372,6 +372,7 @@
   profileView = function () { let html = originalProfileView(); const entries = state.skills.map(s => `<div class="profile-impression"><span>${skillIcon(s)}</span><div><h3>${esc(s.profileTitle || s.name)}</h3><p>${esc(profileText(s))}</p></div></div>`).join(''); if (entries) html = html.replace('</section><div class="demo-settings">', `<div class="profile-section"><h2>${icon('spark')} 由任务形成的画像</h2>${entries}</div></section><div class="demo-settings">`); return html; };
 
   let activeAgentPersonId = null;
+  let a2aSessionData = null;
   let agentChatData = null;
   function latestAgentRun() { return state.agentRuns?.[state.agentRuns.length - 1] || null; }
   function agentMessagesPanel() {
@@ -381,9 +382,9 @@
       return `<section class="agent-message-panel agent-chat-panel"><div class="agent-panel-head"><button class="text-button" data-action="agent-chat-back">← 返回任务结果</button><span class="agent-live-dot">Agent 在线</span></div><div class="agent-person-head"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h2>${esc(p.name)} 的 Agent</h2><p>${esc(p.role)}</p></div></div><div class="agent-context"><span>共同话题</span><b>${esc(p.topic)}</b></div><div class="agent-message-list">${agentChatData.messages.map(m => `<div class="agent-bubble ${m.from === 'me' ? 'mine' : ''}"><small>${m.from === 'me' ? '你' : `${esc(p.name)} 的 Agent`}</small><p>${esc(m.text)}</p></div>`).join('')}</div><form class="agent-compose" id="messages-agent-chat-form" data-person="${p.id}"><textarea id="messages-agent-chat-input" maxlength="500" placeholder="继续问问 TA 的 Agent…" required></textarea><button class="button small" type="submit">发送 ${icon('send')}</button></form></section>`;
     }
     if (!run) return '';
-    const candidates = run.matches?.map(id => run.people?.[id]).filter(Boolean) || [];
+    const candidates = run.matches?.map(id => run.people?.[id] || state.people?.[id]).filter(Boolean) || [];
     const stages = ['理解你的兴趣与任务', '匹配人物与共同话题', '整理推荐理由与交流线索'];
-    return `<section class="agent-message-panel"><div class="agent-panel-head"><div><span class="eyebrow">AGENT TASK</span><h2>${esc(run.skill?.name || '最近一次探索')}</h2></div><span class="agent-status-pill ${run.status === 'completed' ? 'done' : ''}">${run.status === 'completed' ? '已完成' : '进行中'}</span></div><div class="agent-timeline">${stages.map((text, i) => `<div class="agent-stage ${i < (run.stage || 0) ? 'done' : i === (run.stage || 0) ? 'current' : ''}"><span>${i < (run.stage || 0) ? '✓' : i + 1}</span><p>${text}</p></div>`).join('')}</div>${run.timeline?.length ? `<div class="agent-summary">${esc(run.timeline[run.timeline.length - 1].text)}</div>` : ''}${candidates.length ? `<div class="agent-results-head"><div><span class="eyebrow">MATCHED PEOPLE</span><h3>这些人，值得先聊聊</h3></div><span class="muted">${candidates.length} 位候选人</span></div><div class="agent-person-grid">${candidates.map(p => `<article class="agent-person-card"><div class="agent-card-top"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h3>${esc(p.name)}</h3><p>${esc(p.role)}</p></div></div><div class="agent-tags">${p.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div><p class="agent-reason">${esc(p.reason)}</p><button class="button small wide" data-action="agent-chat" data-person="${p.id}">与 TA 的 Agent 交流</button></article>`).join('')}</div>` : '<div class="agent-empty">Agent 正在寻找合适的连接，请稍候…</div>'}</section>`;
+    return `<section class="agent-message-panel"><div class="agent-panel-head"><div><span class="eyebrow">AGENT TASK</span><h2>${esc(run.skill?.name || '最近一次探索')}</h2></div><span class="agent-status-pill ${run.status === 'completed' ? 'done' : ''}">${run.status === 'completed' ? '已完成' : '进行中'}</span></div><div class="agent-timeline">${stages.map((text, i) => `<div class="agent-stage ${i < (run.stage || 0) ? 'done' : i === (run.stage || 0) ? 'current' : ''}"><span>${i < (run.stage || 0) ? '✓' : i + 1}</span><p>${text}</p></div>`).join('')}</div>${run.timeline?.length ? `<div class="agent-summary">${esc(run.timeline[run.timeline.length - 1].text)}</div>` : ''}${candidates.length ? `<div class="agent-results-head"><div><span class="eyebrow">MATCHED PEOPLE</span><h3>这些人，值得先聊聊</h3></div><span class="muted">${candidates.length} 位候选人</span></div><div class="agent-person-grid">${candidates.map(p => `<article class="agent-person-card"><div class="agent-card-top"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h3>${esc(p.name)}</h3><p>${esc(p.role)}</p></div></div><div class="agent-tags">${p.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div><p class="agent-reason">${esc(p.reason)}</p><button class="button small wide" data-action="agent-chat" data-person="${p.id}" data-topic="${esc(p.topic || '')}">让双方 Agent 先聊聊</button></article>`).join('')}</div>` : '<div class="agent-empty">Agent 正在寻找合适的连接，请稍候…</div>'}</section>`;
   }
   const originalMessagesView = messagesView;
   messagesView = function () { const html = originalMessagesView(); return html.replace('<div class="chat-layout">', `${agentMessagesPanel()}<div class="chat-layout">`); };
@@ -404,22 +405,31 @@
       state.discoverIds = current.matches || state.discoverIds;
       persist();
       if (currentView === 'messages' && !activeAgentPersonId) renderWorkspace();
-      if (current.status !== 'completed') setTimeout(poll, 650);
+      if (current.status === 'running') setTimeout(poll, 650); else if (current.status === 'failed') toast(current.llmError || current.timeline?.[current.timeline.length - 1]?.text || 'Skill 执行失败，请重试。');
     };
     poll();
   }
   runSkill = runFromServer;
 
-  function openAgentChat(personId) {
-    fetch(`/api/agent-chats/${personId}/messages`, { method: 'POST', headers, body: JSON.stringify({}) })
-      .then(r => r.json())
-      .then(data => { activeAgentPersonId = personId; agentChatData = data; go('messages'); renderWorkspace(); setTimeout(() => { const list = document.querySelector('.agent-message-list'); if (list) list.scrollTop = list.scrollHeight; document.getElementById('messages-agent-chat-input')?.focus(); }, 0); });
+  async function openAgentChat(personId, topic) {
+    try {
+      const found = await fetch(`/api/discover/people?q=${encodeURIComponent(topic || personId)}&limit=10`, { headers }).then(r => r.json());
+      const recommendation = (found.recommendations || []).find(item => item.targetId === personId && item.a2aEligible);
+      if (recommendation) {
+        a2aSessionData = await fetch('/api/a2a-sessions', { method: 'POST', headers, body: JSON.stringify({ recommendationId: recommendation.id, idempotencyKey: crypto.randomUUID() }) }).then(r => r.json());
+        activeAgentPersonId = null; agentChatData = null; go('messages'); renderWorkspace();
+        const poll = async () => { const current = await fetch(`/api/a2a-sessions/${a2aSessionData.id}`, { headers }).then(r => r.json()); a2aSessionData = current; if (currentView === 'messages') renderWorkspace(); if (current.status === 'running' || current.status === 'observing' || current.status === 'created') setTimeout(poll, 500); }; poll();
+        return;
+      }
+      const data = await fetch(`/api/agent-chats/${personId}/messages`, { method: 'POST', headers, body: JSON.stringify({}) }).then(r => r.json());
+      activeAgentPersonId = personId; agentChatData = data; go('messages'); renderWorkspace();
+    } catch (error) { toast('暂时无法启动 Agent 交流，请稍后重试。'); }
   }
 
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-action="agent-chat"]');
-    if (b) openAgentChat(b.dataset.person);
-    if (e.target.closest('[data-action="agent-chat-back"]')) { activeAgentPersonId = null; agentChatData = null; renderWorkspace(); }
+    if (b) openAgentChat(b.dataset.person, b.dataset.topic);
+    if (e.target.closest('[data-action="agent-chat-back"]')) { activeAgentPersonId = null; agentChatData = null; a2aSessionData = null; renderWorkspace(); }
   });
   document.addEventListener('submit', async e => {
     if (e.target.id !== 'messages-agent-chat-form') return;

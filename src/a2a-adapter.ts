@@ -33,8 +33,9 @@ export interface F05InvitationDraftPort {
 }
 
 export class InMemoryCandidateProfileProvider implements CandidateProfileProvider {
-  private readonly profiles: Readonly<Record<string, AgentContextSnapshot>>;
-  constructor(profiles: Readonly<Record<string, AgentContextSnapshot>>) { this.profiles = profiles; }
+  private readonly profiles: Record<string, AgentContextSnapshot>;
+  constructor(profiles: Readonly<Record<string, AgentContextSnapshot>>) { this.profiles = { ...profiles }; }
+  setProfile(candidateId: string, profile: AgentContextSnapshot) { this.profiles[candidateId] = profile; }
   async getPublicProfile(candidateId: string) { return this.profiles[candidateId] || null; }
 }
 
