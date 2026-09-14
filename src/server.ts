@@ -13,7 +13,7 @@ import { OAuthStateStore } from './auth/oauth-state.ts';
 import { authorizationUrl, exchangeCode, fetchUser } from './zhihu/zhihu-oauth-client.ts';
 import { readZhihuOAuthConfig } from './zhihu/oauth-config.ts';
 import { redirect } from './http/response.ts';
-import { searchZhihuUsers } from './zhihu/skill-search.ts';
+import { searchZhihuUsers, zhihuAuthorId } from './zhihu/skill-search.ts';
 import { HumanChatError, HumanChatStore } from './human-chat/store.ts';
 import type { HumanUser } from './human-chat/types.ts';
 import { FakeA2ASessionAdapter, InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort } from './a2a-adapter.ts';
@@ -106,7 +106,7 @@ async function enrichRun(run: Run) {
   try {
     const results = await searchZhihuUsers(query, 10);
     for (const result of results) {
-      const id = `zhihu:${Buffer.from(result.authorName + result.url).toString('base64url').slice(0, 32)}`;
+      const id = zhihuAuthorId(result);
       if (!people[id]) people[id] = {
         id,
         name: result.authorName,

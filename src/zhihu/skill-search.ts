@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 export type ZhihuSearchItem = Readonly<{
   title: string;
   authorName: string;
+  authorSignature?: string;
   excerpt: string;
   url: string;
 }>;
@@ -30,22 +31,37 @@ function collectItems(value: unknown, result: ZhihuSearchItem[] = []) {
   const item = value as Record<string, unknown>;
   const title = text(item.Title || item.title);
   const authorName = text(item.AuthorName || item.authorName || item.author_name || item.author);
+  const authorSignature = text(item.AuthorSignature || item.authorSignature || item.author_signature || item.AuthorUrl || item.authorUrl || item.author_url);
   const excerpt = text(item.ContentText || item.contentText || item.excerpt || item.summary || item.Summary);
   const url = text(item.Url || item.url || item.Link || item.link);
-  if (title && authorName && url) result.push({ title, authorName, excerpt, url });
+  if (title && authorName && url) result.push({ title, authorName, ...(authorSignature ? { authorSignature } : {}), excerpt, url });
   for (const child of Object.values(item)) collectItems(child, result);
   return result;
 }
 
+function normalizeAuthor(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
 export function parseZhihuSearchOutput(output: string) {
   const payload = JSON.parse(output) as unknown;
-  const seen = new Set<string>();
-  return collectItems(payload).filter(item => {
-    const key = `${item.authorName}\u0000${item.url}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const seenSources = new Set<string>();
+  const authors = new Map<string, ZhihuSearchItem>();
+  for (const item of collectItems(payload)) {
+    const authorKey = normalizeAuthor(item.authorSignature || item.authorName);
+    const sourceKey = `${authorKey}\u0000${item.url}`;
+    if (seenSources.has(sourceKey)) continue;
+    seenSources.add(sourceKey);
+    // Search returns content records. Collapse them here so callers receive
+    // one candidate per real author, with the first result kept as evidence.
+    if (!authors.has(authorKey)) authors.set(authorKey, item);
+  }
+  return [...authors.values()];
+}
+
+export function zhihuAuthorId(item: Pick<ZhihuSearchItem, 'authorName' | 'authorSignature'>) {
+  const identity = item.authorSignature || normalizeAuthor(item.authorName);
+  return `zhihu:${Buffer.from(identity).toString('base64url').slice(0, 48)}`;
 }
 
 export async function searchZhihuUsers(query: string, count = 10): Promise<ZhihuSearchItem[]> {
