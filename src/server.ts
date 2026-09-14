@@ -7,6 +7,14 @@ import { randomUUID } from 'node:crypto';
 import { buildAgentContextSnapshot, type AgentContextSnapshot } from './agent-context.ts';
 import { recallContent, recallPeople, type ContentCandidate, type PeopleCandidate } from './explore.ts';
 import { routeTrigger, type TriggerEvent } from './trigger-router.ts';
+import { clearSessionCookie, setSessionCookie, readCookie } from './auth/cookie.ts';
+import { SessionStore } from './auth/session-store.ts';
+import { OAuthStateStore } from './auth/oauth-state.ts';
+import { authorizationUrl, exchangeCode, fetchUser } from './zhihu/zhihu-oauth-client.ts';
+import { readZhihuOAuthConfig } from './zhihu/oauth-config.ts';
+import { redirect } from './http/response.ts';
+import { HumanChatError, HumanChatStore } from './human-chat/store.ts';
+import type { HumanUser } from './human-chat/types.ts';
 
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
 type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
@@ -21,6 +29,11 @@ const sessions = new Map<string, AppState>();
 const runs = new Map<string, TriggeredRun>();
 const agentChats = new Map<string, AgentMessage[]>();
 const requestSessions = new WeakMap<IncomingMessage, string>();
+const authSessions = new SessionStore();
+const oauthStates = new OAuthStateStore();
+const zhihuOAuth = readZhihuOAuthConfig();
+const humanChatStore = new HumanChatStore(join(dataDir, 'human-chats.json'));
+await humanChatStore.load();
 
 const people: Record<string, { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string }> = {
   chen: { id: 'chen', name: '陈序', role: '独立开发者 · AI 产品实践', bio: '在做让复杂任务变简单的工具。写过代码，也踩过产品的坑。', tags: ['AI 产品', '独立开发', '交互'], reason: '他有 AI 产品落地经验，与你都在思考如何把复杂任务变简单。', topic: 'AI 产品应该先做聊天入口，还是任务流程？', greeting: '你好，我是陈序。看到你也在研究 AI 产品入口，我正好有一次改版经历可以分享。' },
@@ -41,6 +54,13 @@ function sessionId(req: IncomingMessage, res: ServerResponse) { const cached = r
 async function saveSessions() { await mkdir(dataDir, { recursive: true }); await writeFile(stateFile, JSON.stringify(Object.fromEntries(sessions), null, 2)); }
 async function loadSessions() { if (!existsSync(stateFile)) return; try { const saved = JSON.parse(await readFile(stateFile, 'utf8')); for (const [id, value] of Object.entries(saved)) sessions.set(id, value as AppState); } catch { /* a corrupt demo file should not block a fresh session */ } }
 function currentState(req: IncomingMessage, res: ServerResponse) { const id = sessionId(req, res); if (!sessions.has(id)) sessions.set(id, fresh()); return sessions.get(id)!; }
+function authSession(req: IncomingMessage) { return authSessions.getOrCreate(req); }
+function secureCookies(req: IncomingMessage) { return req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production'; }
+function authError(res: ServerResponse, message: string) { return redirect(res, `/?auth=error&reason=${encodeURIComponent(message)}`); }
+function humanUser(req: IncomingMessage, url: URL, res: ServerResponse): HumanUser {
+  const selected = String(req.headers['x-z1-demo-user'] || url.searchParams.get('demoUser') || 'a').toLowerCase() === 'b' ? 'b' : 'a';
+  return { id: `${sessionId(req, res)}:${selected}`, name: selected === 'b' ? '演示用户 B' : '演示用户 A' };
+}
 function profileDescription(skill: Skill) { const goal = String(skill.goal || '').trim().replace(/[。.!！?？]+$/, ''); return goal ? `正在通过 Agent：${goal}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`; }
 function runFor(skill: Skill): Run { const terms = `${skill.name} ${skill.goal || ''} ${skill.keywords || ''}`.toLowerCase(); const matches = Object.values(people).filter(p => p.tags.some(t => terms.includes(t.toLowerCase())) || terms.includes('人') || terms.includes('实习')).slice(0, 2).map(p => p.id); return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先理解你的目标，再寻找有依据的连接。` }], matches: matches.length ? matches : ['chen', 'xia'], llmReady: !process.env.DEEPSEEK_API_KEY }; }
 function triggeredRun(skill: Skill, ownerId: string, profileSnapshot: AgentContextSnapshot): TriggeredRun { return { ...runFor(skill), ownerId, profileSnapshot }; }
@@ -83,6 +103,46 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,PUT,POST,OPTIONS', 'access-control-allow-headers': 'Content-Type,X-Z1-Session' }); return res.end(); }
     if (url.pathname === '/api/health') return json(res, 200, { ok: true, service: 'z1space-api' });
+    if (url.pathname === '/api/auth/session' && req.method === 'GET') {
+      const session = authSession(req);
+      if (!readCookie(req, 'z1_session')) setSessionCookie(res, session.id, secureCookies(req));
+      return json(res, 200, { ...authSessions.publicView(session), oauthConfigured: zhihuOAuth.configured });
+    }
+    if (url.pathname === '/auth/zhihu/start' && req.method === 'GET') {
+      const session = authSession(req);
+      setSessionCookie(res, session.id, secureCookies(req));
+      if (!zhihuOAuth.configured) return redirect(res, '/?auth=demo');
+      return redirect(res, authorizationUrl(zhihuOAuth, oauthStates.create(session.id)));
+    }
+    if (url.pathname === '/auth/zhihu/callback' && req.method === 'GET') {
+      const session = authSession(req);
+      const state = url.searchParams.get('state');
+      const code = url.searchParams.get('authorization_code') || url.searchParams.get('code');
+      const providerError = url.searchParams.get('error');
+      if (providerError) { oauthStates.consume(state, session.id); return authError(res, '你取消了知乎授权，请重试。'); }
+      if (!oauthStates.consume(state, session.id)) return authError(res, '授权状态已失效，请重新开始知乎授权。');
+      if (!code) return authError(res, '知乎没有返回授权码。');
+      try { const token = await exchangeCode(zhihuOAuth, code); const user = await fetchUser(token.accessToken); authSessions.setToken(session.id, token, user); setSessionCookie(res, session.id, secureCookies(req)); return redirect(res, '/?auth=success'); }
+      catch (error) { console.error('Zhihu OAuth callback failed:', error instanceof Error ? error.message : 'unknown error'); return authError(res, '知乎授权完成了，但读取公开资料失败，请稍后重试。'); }
+    }
+    if (url.pathname === '/auth/logout' && req.method === 'POST') { const id = readCookie(req, 'z1_session'); if (id) authSessions.delete(id); clearSessionCookie(res); return json(res, 200, { ok: true }); }
+    const human = humanUser(req, url, res);
+    if (url.pathname === '/api/human/overview' && req.method === 'GET') return json(res, 200, humanChatStore.overview(human));
+    if (url.pathname === '/api/human/invitations' && req.method === 'POST') return json(res, 201, await humanChatStore.createInvitation(human, await body(req)));
+    const invitationMatch = url.pathname.match(/^\/api\/human\/invitations\/([^/]+)(?:\/(claim|accept|reject|withdraw))?$/);
+    if (invitationMatch) {
+      const id = invitationMatch[1];
+      if (!invitationMatch[2] && req.method === 'GET') return json(res, 200, await humanChatStore.claim(human, id, url.searchParams.get('token') || ''));
+      if (invitationMatch[2] === 'claim' && req.method === 'POST') { const input = await body(req) as { token?: string }; return json(res, 200, await humanChatStore.claim(human, id, String(input.token || ''))); }
+      if (invitationMatch[2] && req.method === 'POST') return json(res, 200, await humanChatStore.act(human, id, invitationMatch[2] as 'accept' | 'reject' | 'withdraw'));
+    }
+    const conversationMatch = url.pathname.match(/^\/api\/human\/conversations\/([^/]+)(?:\/(messages|read))?$/);
+    if (conversationMatch) {
+      const id = conversationMatch[1];
+      if (!conversationMatch[2] && req.method === 'GET') return json(res, 200, humanChatStore.conversation(human.id, id));
+      if (conversationMatch[2] === 'messages' && req.method === 'POST') return json(res, 201, await humanChatStore.send(human.id, id, await body(req)));
+      if (conversationMatch[2] === 'read' && req.method === 'POST') { const input = await body(req) as { seq?: number }; return json(res, 200, await humanChatStore.read(human.id, id, Number(input.seq || 0))); }
+    }
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, currentState(req, res));
     if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); sessions.set(id, { ...fresh(), ...next, version: 1 }); await saveSessions(); return json(res, 200, sessions.get(id)); }
     if (url.pathname === '/api/runs' && req.method === 'POST') { const input = await body(req) as { skill?: Skill }; const state = currentState(req, res); const ownerId = sessionId(req, res); const profile = snapshotFor(state, ownerId); const requestedSkill = input.skill && state.skills.find(skill => skill.id === input.skill?.id); const event = trigger('skill_run.requested', ownerId, { skillId: input.skill?.id }); const activeRun = [...runs.values()].filter(run => run.ownerId === ownerId && run.skill.id === input.skill?.id).map(run => advance(run)).find(run => run.status === 'running'); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills, ...(activeRun ? { activeRun: { runId: activeRun.id, skillId: activeRun.skill.id } } : {}) }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'skill-runner' || !profile || !requestedSkill) return json(res, 400, { error: 'SKILL_NOT_FOUND' }); if (plan.existingRunId) { const existing = runs.get(plan.existingRunId)!; return json(res, 202, { ...publicRun(advance(existing)), people }); } const run = triggeredRun(requestedSkill, ownerId, profile); runs.set(run.id, run); void enrichRun(run); state.runs = [...(state.runs || []), { id: run.id, skillId: requestedSkill.id, createdAt: run.createdAt }]; await saveSessions(); return json(res, 202, { ...publicRun(advance(run)), people }); }
@@ -91,7 +151,7 @@ const server = createServer(async (req, res) => {
     const chatMatch = url.pathname.match(/^\/api\/agent-chats\/([^/]+)\/messages$/); if (chatMatch && req.method === 'POST') { const person = people[chatMatch[1]]; if (!person) return json(res, 404, { error: 'PERSON_NOT_FOUND' }); const input = await body(req) as { text?: string }; const messages = agentChats.get(person.id) || [{ from: 'agent', text: person.greeting, time: new Date().toISOString() }]; if (input.text?.trim()) { messages.push({ from: 'me', text: input.text.trim(), time: new Date().toISOString() }); let reply = `围绕「${person.topic}」，我的建议是先从具体经历聊起。你也可以问我：${person.reason}`; try { reply = await deepseekChat([{ role: 'system', content: `你是 ${person.name} 的个人 Agent，只能根据以下公开画像回答。你不是本人，不要冒充真人；语气友好、具体，回答控制在180字内，并给出一个可继续交流的问题。画像：${JSON.stringify(person)}` }, ...messages.slice(-8).map(m => ({ role: m.from === 'me' ? 'user' as const : 'assistant' as const, content: m.text }))]) || reply; } catch { /* keep a deterministic fallback when the provider is unavailable */ } messages.push({ from: 'agent', text: reply, time: new Date().toISOString() }); } agentChats.set(person.id, messages); return json(res, 200, { person, messages, provider: process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'fallback' }); }
     const file = staticPath(url.pathname); if (file) { const content = await readFile(file); const type = extname(file) === '.js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8'; res.writeHead(200, { 'content-type': type }); return res.end(content); }
     return json(res, 404, { error: 'NOT_FOUND' });
-  } catch (error) { console.error(error); return json(res, 500, { error: 'INTERNAL_ERROR' }); }
+  } catch (error) { if (error instanceof HumanChatError) return json(res, error.status, { error: error.code }); console.error(error); return json(res, 500, { error: 'INTERNAL_ERROR' }); }
 });
 await loadSessions();
 const port = Number(process.env.PORT || 3000);

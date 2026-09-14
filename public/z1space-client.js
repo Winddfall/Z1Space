@@ -5,6 +5,40 @@
   const headers = { 'content-type': 'application/json', 'x-z1-session': session };
   const getState = () => fetch('/api/state', { headers }).then(r => r.json());
   const saveState = value => fetch('/api/state', { method: 'PUT', headers, body: JSON.stringify(value) }).catch(() => null);
+  const originalRenderAuth = renderAuth;
+  let authSession = null;
+  async function loadAuthSession() {
+    try { const response = await fetch('/api/auth/session', { credentials: 'same-origin' }); authSession = await response.json(); return authSession; } catch { authSession = { mode: 'demo', authenticated: false, oauthConfigured: false }; return authSession; }
+  }
+  function applyZhihuUser(user) {
+    if (!user) return;
+    state.name = user.fullname || state.name;
+    state.zhihuUser = user;
+    if (state.step === 'auth') state.step = 'impressions';
+    persist();
+  }
+  renderAuth = function () {
+    originalRenderAuth();
+    const note = document.querySelector('.auth-card .demo-note');
+    const button = document.getElementById('authorize');
+    if (!button) return;
+    loadAuthSession().then(auth => {
+      if (auth.authenticated && auth.user) { applyZhihuUser(auth.user); render(); return; }
+      if (auth.oauthConfigured) {
+        if (note) note.textContent = '知乎 OAuth 真实接入模式 · 只读取你授权的公开资料，OAuth Token 仅保存在服务端。';
+        button.innerHTML = '同意授权，连接知乎 ' + icon('arrow');
+        const consent = document.getElementById('consent');
+        button.onclick = () => { if (!consent?.checked) return; button.disabled = true; button.innerHTML = '<span class="loading"></span> 正在跳转知乎授权'; window.location.assign('/auth/zhihu/start'); };
+      } else if (note) {
+        note.textContent = '演示模式 · 当前未配置知乎 OAuth 应用，将使用“小林”的示例资料；不会连接真实知乎账号。';
+      }
+      const params = new URLSearchParams(location.search);
+      if (params.get('auth') === 'error') toast(params.get('reason') || '知乎授权未完成，请重试。');
+      if (params.get('auth') === 'success' && auth.user) { applyZhihuUser(auth.user); render(); }
+      if (params.has('auth')) history.replaceState(null, '', location.pathname + location.hash);
+    });
+  };
+
   const originalPersist = persist;
   persist = function () { originalPersist(); saveState(state); };
   const profileText = skill => skill.profileDescription || (skill.goal ? `正在通过 Agent：${skill.goal.replace(/[。.!！?？]+$/, '')}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`);
@@ -80,5 +114,81 @@
   style.textContent = `.agent-message-panel{margin:0 0 28px;padding:24px;background:linear-gradient(145deg,#fff,#f8faff);border:1px solid #e6ebf5;border-radius:22px;box-shadow:0 12px 30px rgba(35,68,132,.06)}.agent-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.agent-panel-head h2{margin:5px 0 0;font-size:22px}.agent-status-pill,.agent-live-dot{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:#eef2f8;color:#77849a;font-size:12px;font-weight:700}.agent-status-pill.done{background:#e9f8f1;color:#1b9b68}.agent-live-dot{background:#eaf8f1;color:#14855a}.agent-live-dot:before{content:'';width:7px;height:7px;border-radius:50%;background:#25b977;box-shadow:0 0 0 4px #d9f3e7}.agent-timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0 16px}.agent-stage{display:flex;align-items:center;gap:9px;color:#a1acbd;font-size:13px}.agent-stage span{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#eef1f6;font-size:11px;font-weight:700}.agent-stage.current{color:#2459ec}.agent-stage.current span{background:#e8efff;color:#2459ec}.agent-stage.done{color:#27976a}.agent-stage.done span{background:#e5f7ee;color:#27976a}.agent-stage p{margin:0;color:inherit}.agent-summary{padding:13px 15px;border-radius:13px;background:#f2f5fb;color:#5c6d87;font-size:13px;line-height:1.7}.agent-results-head{display:flex;align-items:end;justify-content:space-between;margin:24px 0 12px}.agent-results-head h3{margin:4px 0 0;font-size:17px}.agent-person-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.agent-person-card{padding:17px;border:1px solid #e5eaf3;border-radius:16px;background:#fff;transition:transform .16s,box-shadow .16s}.agent-person-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(35,68,132,.1)}.agent-card-top,.agent-person-head{display:flex;align-items:center;gap:11px}.agent-person-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#dfe8ff,#f5dfe8);color:#3c5cbb;font-weight:800}.agent-person-card h3,.agent-person-head h2{margin:0;font-size:16px}.agent-person-card p,.agent-person-head p{margin:2px 0 0;color:#8793a7;font-size:12px}.agent-tags{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px}.agent-tags span{padding:4px 8px;border-radius:6px;background:#f1f4f9;color:#708099;font-size:11px}.agent-reason{min-height:44px!important;color:#60718b!important;line-height:1.7}.agent-person-card .button{margin-top:7px}.agent-empty{padding:28px;text-align:center;color:#8c98aa}.agent-chat-panel{padding-bottom:17px}.agent-chat-panel .agent-panel-head{align-items:center}.agent-chat-panel .text-button{padding:0}.agent-context{margin:20px 0 15px;padding:13px 15px;border-radius:13px;background:#f2f5fb;display:flex;flex-direction:column;gap:4px}.agent-context span{font-size:11px;color:#8b98ac}.agent-context b{font-size:14px;color:#455975}.agent-message-list{max-height:390px;overflow:auto;padding:3px 3px 10px}.agent-bubble{max-width:78%;margin:10px 0;padding:11px 14px;border-radius:14px 14px 14px 4px;background:#f0f3f8;color:#43546f}.agent-bubble.mine{margin-left:auto;border-radius:14px 14px 4px 14px;background:#2459ec;color:#fff}.agent-bubble small{display:block;margin-bottom:4px;font-size:10px;opacity:.68}.agent-bubble p{margin:0;color:inherit;font-size:13px;line-height:1.7}.agent-compose{display:flex;align-items:end;gap:10px;padding-top:13px;border-top:1px solid #edf0f5}.agent-compose textarea{flex:1;min-height:48px;max-height:110px;padding:11px 13px;border:1px solid #dfe5ef;border-radius:12px;resize:vertical;font-size:13px;background:#fff}.agent-compose textarea:focus{border-color:#8daaf6;outline:3px solid #e8efff}.agent-compose .button{flex:0 0 auto}.muted{font-size:12px;color:#8c98aa}@media(max-width:720px){.agent-message-panel{padding:17px;border-radius:17px}.agent-timeline{grid-template-columns:1fr;gap:7px}.agent-person-grid{grid-template-columns:1fr}.agent-results-head{align-items:start}.agent-bubble{max-width:90%}.agent-compose{align-items:stretch;flex-direction:column}.agent-compose .button{width:100%}}`;
   document.head.appendChild(style);
 
+  if (state.step === 'auth') renderAuth();
+
   getState().then(remote => { if (!remote || !remote.version) return; const localHasProgress = state.step !== 'auth' || state.skills?.length || state.impressions?.length || state.following?.length || Object.keys(state.chats || {}).length; const remoteHasProgress = remote.step !== 'auth' || remote.skills?.length || remote.impressions?.length || remote.following?.length || Object.keys(remote.chats || {}).length || remote.agentRuns?.length; if (remoteHasProgress || !localHasProgress) { state = { ...state, ...remote }; try { render(); } catch {} } else { saveState(state); } }).catch(() => {});
+
+  /* F05 真人聊天：服务端持久化的邀请、会话和消息。与 Agent 对话保持独立。 */
+  const humanDemoUser = new URLSearchParams(location.search).get('demoUser') || localStorage.getItem('z1space-demo-user') || 'a';
+  localStorage.setItem('z1space-demo-user', humanDemoUser);
+  const humanHeaders = { ...headers, 'x-z1-demo-user': humanDemoUser };
+  let humanOverview = null;
+  let humanConversation = null;
+  let humanPoll = null;
+  const humanApi = async (path, options = {}) => {
+    const response = await fetch(path, { ...options, headers: { ...humanHeaders, ...(options.headers || {}) } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || '请求失败');
+    return data;
+  };
+  const humanError = error => toast(({ INVITATION_NOT_FOUND: '邀请不存在或链接已失效', INVITATION_ALREADY_CLAIMED: '该邀请已被其他会话认领', FORBIDDEN: '你没有权限访问这段会话', INVITATION_NOT_CLAIMED: '请先打开邀请链接完成认领' }[error.message] || error.message || '操作失败'));
+  const humanName = p => p?.name || '对方';
+  const humanStatus = { pending: '等待确认', accepted: '已连接', rejected: '已拒绝', withdrawn: '已撤回', expired: '已过期' };
+  const humanPanel = () => {
+    const overview = humanOverview || { invitations: [], conversations: [], me: { name: '本地演示身份' } };
+    const invitations = overview.invitations || [];
+    const incoming = invitations.filter(i => i.recipient?.id === overview.me.id && i.sender?.id !== overview.me.id);
+    const outgoing = invitations.filter(i => i.sender?.id === overview.me.id);
+    const selected = humanConversation;
+    const initials = name => esc((name || '对').slice(0, 1));
+    const preview = c => c.lastMessage?.text || `围绕「${c.topic}」开始交流`;
+    const timeLabel = value => value ? new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+    const list = overview.conversations.map(c => `<button class="human-chat-item ${selected?.id === c.id ? 'active' : ''}" data-human-open="${esc(c.id)}"><span class="human-chat-avatar">${initials(humanName(c.other))}</span><span class="human-chat-copy"><b>${esc(humanName(c.other))}</b><small>${esc(preview(c))}</small></span><span class="human-chat-meta"><time>${timeLabel(c.lastMessage?.createdAt || c.updatedAt)}</time>${c.unread ? `<em>${c.unread}</em>` : ''}</span></button>`).join('');
+    const inviteRows = [...incoming, ...outgoing].map(i => `<div class="human-invite-row"><div><b>${i.sender?.id === overview.me.id ? '发给' : '来自'} ${esc(i.sender?.id === overview.me.id ? i.recipientName : humanName(i.sender))}</b><small>${esc(i.topic)} · ${humanStatus[i.status] || i.status}</small></div>${i.status === 'pending' && i.recipient?.id === overview.me.id ? `<span><button class="button small" data-human-act="accept" data-id="${i.id}">接受</button> <button class="button secondary small" data-human-act="reject" data-id="${i.id}">拒绝</button></span>` : i.status === 'pending' && i.sender?.id === overview.me.id ? `<span><button class="button secondary small" data-human-act="withdraw" data-id="${i.id}">撤回</button>${i.shareToken ? ` <button class="text-button" data-human-copy="${i.id}" data-token="${i.shareToken}">复制链接</button>` : ''}</span>` : ''}</div>`).join('');
+    const detail = selected ? `<section class="human-chat-detail"><header class="human-chat-head"><button class="text-button" data-human-back>← 返回消息列表</button><div class="human-chat-person"><span class="human-chat-avatar">${initials(humanName(selected.other))}</span><div><b>${esc(humanName(selected.other))}</b><small>真人会话 · 本地演示</small></div></div><span class="pill">点对点</span></header><div class="human-topic">共同话题：${esc(selected.topic)}</div><div class="human-message-list">${selected.messages.map(m => `<div class="human-message ${m.senderId === overview.me.id ? 'mine' : ''}"><small>${m.senderId === overview.me.id ? '你' : esc(humanName(selected.members[m.senderId]))}</small><p>${esc(m.text)}</p></div>`).join('') || '<div class="human-empty">会话已建立，发出第一句话吧。</div>'}</div><form id="human-message-form"><textarea id="human-message-input" maxlength="1000" required placeholder="写下你想说的话…"></textarea><button class="button small" type="submit">发送 ${icon('send')}</button></form></section>` : '';
+    return `<section class="human-message-panel"><div class="human-panel-title"><div><span class="eyebrow">REAL PEOPLE</span><h2>真人消息</h2></div><span class="human-demo-badge">本地演示身份：${esc(overview.me.name)}</span></div>${inviteRows ? `<div class="human-invites"><h3>邀请</h3>${inviteRows}</div>` : ''}${selected ? detail : `<div class="human-inbox-list">${list || '<div class="human-empty">暂无已连接会话<br><small>从人物卡片发起一条真人邀请吧</small></div>'}</div>`}</section>`;
+  };
+  const refreshHuman = async (conversationId = humanConversation?.id) => {
+    try {
+      const nextOverview = await humanApi('/api/human/overview');
+      const nextConversation = conversationId ? await humanApi(`/api/human/conversations/${conversationId}`) : null;
+      const changed = JSON.stringify(nextOverview) !== JSON.stringify(humanOverview) || JSON.stringify(nextConversation) !== JSON.stringify(humanConversation);
+      humanOverview = nextOverview;
+      if (nextConversation) {
+        humanConversation = nextConversation;
+        const seq = nextConversation.messages.at(-1)?.seq || 0;
+        if (seq) humanApi(`/api/human/conversations/${conversationId}/read`, { method: 'POST', body: JSON.stringify({ seq }) }).catch(() => null);
+      }
+      if (changed && currentView === 'messages' && document.activeElement?.id !== 'human-message-input') renderWorkspace();
+    } catch (error) { humanError(error); }
+  };
+  const originalHumanMessagesView = messagesView;
+  messagesView = function () { return `${originalHumanMessagesView()}${humanPanel()}`; };
+  function inviteHumanDialog(personId, postId) {
+    const person = lookup(personId); const post = posts.find(x => x.id === postId); const topic = post?.title || person?.topic || '共同兴趣';
+    if (!person) return;
+    showDialog(`邀请 ${person.name} 开始真人对话`, `<div class="person-top">${avatar(person)}<div><b>${esc(person.name)}</b><div class="person-subtitle">${esc(person.role)}</div></div></div><div class="summary-box"><span class="eyebrow">共同话题</span><br>${esc(topic)}</div><form id="human-invite-form" data-person="${esc(person.id)}" data-name="${esc(person.name)}" data-topic="${esc(topic)}"><div class="field"><label for="human-invite-text">写一句邀请开场白</label><textarea id="human-invite-text" maxlength="500" required>你好，看到你分享的内容，我也在关注「${esc(topic)}」。想听听你的实践经历，也很愿意交换我的想法。</textarea><small>邀请将生成一个链接，只有对方打开并接受后才会建立会话。</small></div></form><div class="demo-note">本地演示模式 · 当前身份是 ${esc((humanOverview?.me?.name) || '演示用户 A')}，不会向知乎发送消息。</div>`, button('close-dialog','取消','button secondary') + '<button type="submit" form="human-invite-form" class="button">创建真人邀请</button>');
+  }
+  document.addEventListener('click', async e => {
+    const invite = e.target.closest('[data-action="invite"]');
+    if (invite) { e.preventDefault(); e.stopImmediatePropagation(); await refreshHuman(); inviteHumanDialog(invite.dataset.id, invite.dataset.post); return; }
+    const open = e.target.closest('[data-human-open]');
+    if (open) { e.preventDefault(); humanConversation = await humanApi(`/api/human/conversations/${open.dataset.humanOpen}`); go('messages'); renderWorkspace(); return; }
+    if (e.target.closest('[data-human-back]')) { humanConversation = null; renderWorkspace(); return; }
+    const act = e.target.closest('[data-human-act]');
+    if (act) { e.preventDefault(); try { await humanApi(`/api/human/invitations/${act.dataset.id}/${act.dataset.humanAct}`, { method: 'POST', body: '{}' }); await refreshHuman(); closeDialog(); toast(act.dataset.humanAct === 'accept' ? '邀请已接受，可以开始聊天。' : '邀请状态已更新。'); } catch (error) { humanError(error); } return; }
+    const copy = e.target.closest('[data-human-copy]');
+    if (copy) { const url = `${location.origin}/?invite=${encodeURIComponent(copy.dataset.humanCopy)}&token=${encodeURIComponent(copy.dataset.token)}&demoUser=b`; await navigator.clipboard?.writeText(url); toast('邀请链接已复制，发给对方后等待对方接受。'); return; }
+  }, true);
+  document.addEventListener('submit', async e => {
+    if (e.target.id === 'human-invite-form') { e.preventDefault(); e.stopImmediatePropagation(); const f = e.target; try { const result = await humanApi('/api/human/invitations', { method: 'POST', body: JSON.stringify({ recipientPersonId: f.dataset.person, recipientName: f.dataset.name, topic: f.dataset.topic, draft: f.querySelector('textarea').value }) }); closeDialog(); await refreshHuman(); const share = `${location.origin}/?invite=${encodeURIComponent(result.id)}&token=${encodeURIComponent(result.shareToken)}&demoUser=b`; await navigator.clipboard?.writeText(share); go('messages'); renderWorkspace(); toast('真人邀请已创建，链接已复制。'); } catch (error) { humanError(error); } return; }
+    if (e.target.id === 'human-message-form') { e.preventDefault(); e.stopImmediatePropagation(); const input = e.target.querySelector('textarea'); const text = input.value.trim(); if (!text || !humanConversation) return; input.disabled = true; try { await humanApi(`/api/human/conversations/${humanConversation.id}/messages`, { method: 'POST', body: JSON.stringify({ text, clientMessageId: crypto.randomUUID() }) }); input.value = ''; await refreshHuman(humanConversation.id); } catch (error) { humanError(error); } finally { input.disabled = false; } return; }
+  }, true);
+  const originalGo = go;
+  go = function (view, id) { originalGo(view, id); if (view === 'messages') refreshHuman(id); };
+  const params = new URLSearchParams(location.search);
+  if (params.get('invite') && params.get('token')) (async () => { try { const result = await humanApi(`/api/human/invitations/${encodeURIComponent(params.get('invite'))}/claim`, { method: 'POST', body: JSON.stringify({ token: params.get('token') }) }); showDialog('收到一条真人邀请', `<div class="summary-box"><span class="eyebrow">${esc(result.sender.name)} 邀请你</span><h3>${esc(result.topic)}</h3><p>${esc(result.draft)}</p></div><div class="demo-note">你将以本地演示身份「${esc((await humanApi('/api/human/overview')).me.name)}」接收这条邀请。</div>`, button('close-dialog','稍后处理','button secondary') + `<button class="button" data-human-act="accept" data-id="${result.id}">接受邀请</button>`); history.replaceState(null, '', location.pathname + location.hash); await refreshHuman(); } catch (error) { humanError(error); } })();
+  humanPoll = setInterval(() => { if (currentView === 'messages') refreshHuman(); }, 3000);
+  refreshHuman();
+  const humanStyle = document.createElement('style'); humanStyle.textContent = `.chat-layout{display:none!important}.human-inbox-list{border-top:1px solid #edf0f5}.human-chat-item{display:grid;grid-template-columns:48px 1fr auto;align-items:center;gap:13px;width:100%;padding:15px 8px;border:0;border-bottom:1px solid #edf0f5;background:#fff;text-align:left;color:#42536d;cursor:pointer;transition:background .16s}.human-chat-item:hover,.human-chat-item.active{background:#f6f8ff}.human-chat-avatar{display:grid;place-items:center;width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#dce7ff,#f5dff0);color:#3e61be;font-size:18px;font-weight:800}.human-chat-copy{min-width:0}.human-chat-copy b{display:block;color:#243652;font-size:15px}.human-chat-copy small{display:block;overflow:hidden;margin-top:6px;color:#8995a8;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.human-chat-meta{display:flex;min-width:48px;align-self:stretch;flex-direction:column;align-items:flex-end;justify-content:space-between;padding:2px 0}.human-chat-meta time{color:#a1aabd;font-size:11px}.human-chat-meta em{display:grid;place-items:center;min-width:18px;height:18px;border-radius:10px;background:#e64c68;color:#fff;font-size:10px;font-style:normal}.human-chat-detail{padding-top:5px}.human-chat-person{display:flex;align-items:center;gap:10px;margin:auto}.human-chat-person .human-chat-avatar{width:36px;height:36px;font-size:15px}.human-chat-person small,.human-chat-head small{display:block;color:#8a97aa;font-size:11px;margin-top:3px}.human-message-panel{margin:0 0 28px;padding:24px;background:#fff;border:1px solid #e6ebf5;border-radius:22px;box-shadow:0 12px 30px rgba(35,68,132,.06)}.human-panel-title,.human-chat-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.human-panel-title h2{margin:5px 0 18px}.human-demo-badge{padding:7px 11px;border-radius:999px;background:#fff7e8;color:#9b681b;font-size:12px}.human-invites{margin-bottom:16px;padding:13px;border-radius:14px;background:#fafbfe}.human-invites h3{margin:0 0 8px;font-size:13px}.human-invite-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #edf0f5}.human-invite-row small,.human-chat-item small,.human-chat-head small{display:block;color:#8a97aa;font-size:11px;margin-top:4px}.human-chat-main{padding:18px;display:flex;flex-direction:column}.human-topic{margin:16px 0;padding:11px 13px;background:#f2f5fb;border-radius:11px;color:#60718b;font-size:12px}.human-message-list{flex:1;max-height:290px;overflow:auto}.human-message{max-width:78%;margin:9px 0;padding:10px 13px;border-radius:14px 14px 14px 4px;background:#f0f3f8;color:#43546f}.human-message.mine{margin-left:auto;border-radius:14px 14px 4px 14px;background:#2459ec;color:#fff}.human-message small{display:block;font-size:10px;opacity:.68}.human-message p{margin:4px 0 0;font-size:13px;line-height:1.6}.human-chat-main form{display:flex;gap:10px;margin-top:14px}.human-chat-main textarea{flex:1;min-height:45px;padding:10px;border:1px solid #dfe5ef;border-radius:11px;resize:vertical}.human-empty{display:grid;place-items:center;align-content:center;gap:8px;color:#8c98aa;text-align:center}.human-empty h3,.human-empty p{margin:0}@media(max-width:720px){.human-chat-layout{grid-template-columns:1fr}.human-chat-list{border-right:0;border-bottom:1px solid #edf0f5}.human-chat-main form{flex-direction:column}}`; document.head.appendChild(humanStyle);
 })();

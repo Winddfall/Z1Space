@@ -1,0 +1,31 @@
+export type InvitationStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn' | 'expired';
+export type HumanUser = { id: string; name: string; personId?: string };
+export type Invitation = {
+  id: string;
+  sender: HumanUser;
+  recipientPersonId: string;
+  recipientName: string;
+  recipient?: HumanUser;
+  topic: string;
+  draft: string;
+  contentId?: string;
+  status: InvitationStatus;
+  claimToken: string;
+  createdAt: number;
+  expiresAt: number;
+  updatedAt: number;
+  conversationId?: string;
+};
+export type HumanMessage = { id: string; seq: number; senderId: string; text: string; clientMessageId: string; createdAt: number };
+export type Conversation = {
+  id: string;
+  memberIds: [string, string];
+  members: Record<string, HumanUser>;
+  topic: string;
+  invitationId: string;
+  messages: HumanMessage[];
+  lastReadSeq: Record<string, number>;
+  createdAt: number;
+  updatedAt: number;
+};
+export type HumanChatData = { invitations: Invitation[]; conversations: Conversation[] };
