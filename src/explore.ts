@@ -62,7 +62,7 @@ function recommendation(targetType: 'person' | 'content', targetId: string, quer
 export function recallPeople(candidates: readonly PeopleCandidate[], query: string, profile: AgentContextSnapshot, limit = 10): ExploreResult<PeopleCandidate> {
   const queryTerms = terms(query);
   if (!queryTerms.length || !profile.sections.some(section => section.publicBoundary === 'public')) return Object.freeze({ target: 'people', candidates: Object.freeze([]), recommendations: Object.freeze([]) });
-  const found = candidates.filter(candidate => matches(queryTerms, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')}`)).slice(0, limit);
+  const found = candidates.filter(candidate => matches(queryTerms, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')} ${candidate.topic || ''}`)).slice(0, limit);
   return Object.freeze({
     target: 'people',
     candidates: Object.freeze([...found]),
@@ -70,7 +70,7 @@ export function recallPeople(candidates: readonly PeopleCandidate[], query: stri
       const profileEvidence = evidence(profile, queryTerms);
       const candidateEvidence = Object.freeze({ sourceType: 'candidate' as const, sourceId: candidate.id, excerpt: `${candidate.role}；${candidate.bio}`.slice(0, 80), quality: 'self_reported' as const });
       const divergenceSignals = /不同|分歧|碰撞|取舍|争议|反对/.test(query) && /还是|取舍|不同/.test(candidate.topic || '') ? [candidate.topic || ''] : [];
-      return recommendation('person', candidate.id, query, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')}`, candidate.tags, [candidate.role, candidate.bio], divergenceSignals, profile, [...profileEvidence, candidateEvidence]);
+      return recommendation('person', candidate.id, query, `${candidate.name} ${candidate.role} ${candidate.bio} ${candidate.tags.join(' ')} ${candidate.topic || ''}`, candidate.tags, [candidate.role, candidate.bio], divergenceSignals, profile, [...profileEvidence, candidateEvidence]);
     }))
   });
 }
