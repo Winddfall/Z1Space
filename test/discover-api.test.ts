@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -34,10 +34,15 @@ async function waitForServer(baseUrl: string, child: ReturnType<typeof spawn>) {
 test('Discover APIs complete the Golden Case and preserve empty results', async () => {
   const port = await availablePort();
   const dataDir = await mkdtemp(join(tmpdir(), 'z1space-discover-'));
+  const cliPath = join(dataDir, 'zhihu-cli');
+  await writeFile(cliPath, `#!/bin/sh
+printf '%s\n' '{"Data":[{"Title":"AI 产品实战复盘","AuthorName":"知乎用户甲","AuthorSignature":"zhihu-user-a","ContentText":"分享 AI 产品入口与交互验证经验。","Url":"https://www.zhihu.com/question/1/answer/2"},{"Title":"独立产品的用户访谈方法","AuthorName":"知乎用户乙","AuthorSignature":"zhihu-user-b","ContentText":"记录真实用户访谈和产品迭代。","Url":"https://zhuanlan.zhihu.com/p/3"},{"Title":"Agent 交互的边界","AuthorName":"知乎用户丙","AuthorSignature":"zhihu-user-c","ContentText":"讨论 Agent 的主动性和用户确认。","Url":"https://www.zhihu.com/question/4/answer/5"}]}'
+`);
+  await chmod(cliPath, 0o755);
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, ['--env-file-if-exists=.env', 'src/server.ts'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), Z1SPACE_DATA_DIR: dataDir, DEEPSEEK_API_KEY: '' },
+    env: { ...process.env, PORT: String(port), Z1SPACE_DATA_DIR: dataDir, ZHIHU_CLI_PATH: cliPath, DEEPSEEK_API_KEY: '' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   const baseHeaders = { 'content-type': 'application/json' };
@@ -169,7 +174,7 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
 
     const progressedResponse = await fetch(`${baseUrl}/api/runs/${run.id}`, { headers });
     assert.equal(progressedResponse.status, 200);
-    const progressed = await progressedResponse.json() as { status: string; stage: number; timeline: { text: string }[]; discoveryIntent: { intent: string; query: string; topic: string; constraints: { targetType: string; keywords: string[] }; sourceRunId: string } };
+    const progressed = await progressedResponse.json() as { status: string; stage: number; matches: string[]; timeline: { text: string }[]; discoveryIntent: { intent: string; query: string; topic: string; constraints: { targetType: string; keywords: string[] }; sourceRunId: string } };
     assert.equal(progressed.status, 'completed');
     assert.equal(progressed.stage, 3);
     assert.ok(progressed.timeline.some(item => item.text.includes('理解你的目标')));
@@ -183,7 +188,7 @@ test('Discover APIs complete the Golden Case and preserve empty results', async 
     assert.equal(bridgedDiscoverResponse.status, 200);
     const bridgedDiscover = await bridgedDiscoverResponse.json() as { sourceIntent: typeof progressed.discoveryIntent; candidates: { id: string }[]; recommendations: { id: string; targetType: string; a2aEligible: boolean; a2aSessionEndpoint?: string }[] };
     assert.deepEqual(bridgedDiscover.sourceIntent, progressed.discoveryIntent);
-    assert.deepEqual(bridgedDiscover.candidates.map(candidate => candidate.id), ['chen', 'xia', 'zhou']);
+    assert.deepEqual(bridgedDiscover.candidates.map(candidate => candidate.id), progressed.matches);
     assert.ok(bridgedDiscover.recommendations.every(item => item.targetType === 'person'));
     assert.ok(bridgedDiscover.recommendations.filter(item => item.a2aEligible).every(item => item.a2aSessionEndpoint === '/api/a2a-sessions'));
     assert.ok(bridgedDiscover.recommendations.filter(item => !item.a2aEligible).every(item => item.a2aSessionEndpoint === undefined));
