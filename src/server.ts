@@ -199,7 +199,7 @@ const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[], options: Record<string, unknown> = {}) {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) return null;
-  const response = await fetch(`${deepseekBaseUrl}/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: deepseekModel, messages, temperature: 0.4, ...options }) });
+  const response = await fetch(`${deepseekBaseUrl}/chat/completions`, { method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body: JSON.stringify({ model: deepseekModel, messages, temperature: 0.4, ...options }), signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
   const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
   return payload.choices?.[0]?.message?.content?.trim() || '';
