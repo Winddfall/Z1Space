@@ -64,8 +64,9 @@ test('a Skill run persists Zhihu people, content, feed data, and supports A2A', 
   const dataDir = await mkdtemp(join(tmpdir(), 'z1space-skill-discovery-'));
   const cliPath = join(dataDir, 'zhihu-cli');
   await writeFile(cliPath, `#!/usr/bin/env node
+const longExcerpt = '长摘要'.repeat(200);
 process.stdout.write(JSON.stringify({Data:[
-  {Title:'AI 产品实战复盘',AuthorName:'知乎用户甲',AuthorSignature:'zhihu-user-a',ContentText:'分享 AI 产品入口与交互验证经验。',Url:'https://www.zhihu.com/question/1/answer/2'},
+  {Title:'AI 产品实战复盘',AuthorName:'知乎用户甲',AuthorSignature:'zhihu-user-a',ContentText:longExcerpt,Url:'https://www.zhihu.com/question/1/answer/2'},
   {Title:'独立产品的用户访谈方法',AuthorName:'知乎用户乙',AuthorSignature:'zhihu-user-b',ContentText:'记录真实用户访谈和产品迭代。',Url:'https://zhuanlan.zhihu.com/p/3'}
 ]}));\n`);
   await chmod(cliPath, 0o755);

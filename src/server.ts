@@ -91,11 +91,19 @@ async function deleteZ1SpaceAccount(req: IncomingMessage, res: ServerResponse) {
   clearAllSessionCookies(res);
   return json(res, 200, { ok: true });
 }
+function boundedProfileImpression(prefix: string, value: string, fallback: string) {
+  const text = `${prefix}${value || fallback}`.trim();
+  return text.length <= 420 ? text : `${text.slice(0, 419)}…`;
+}
 function registerDynamicPerson(person: Person) {
   candidateProfileProvider.setProfile(person.id, buildAgentContextSnapshot({
     profileVersion: 1,
     profileConfirmedAt: new Date().toISOString(),
-    impressions: [`${person.name}的公开身份与实践方向：${person.role}。`, `${person.name}的公开介绍：${person.bio}`, `${person.name}在知乎公开讨论：${person.topic}`],
+    impressions: [
+      boundedProfileImpression(`${person.name}的公开身份与实践方向：`, person.role, '知乎公开用户。'),
+      boundedProfileImpression(`${person.name}的公开介绍：`, person.bio, '在知乎分享公开内容。'),
+      boundedProfileImpression(`${person.name}在知乎公开讨论：`, person.topic, '知乎公开话题。')
+    ],
     profileSourceReferences: [[person.url || `candidate:${person.id}:role`], [person.url || `candidate:${person.id}:bio`], [person.url || `candidate:${person.id}:topic`]],
     profilePublicBoundaries: ['public', 'public', 'public']
   }, person.id));
@@ -292,7 +300,14 @@ async function enrichRun(run: TriggeredRun, state: AppState) {
       };
       if (!run.contentMatches.includes(id)) run.contentMatches.push(id);
     }
-    for (const person of Object.values(run.people)) registerDynamicPerson(person);
+    for (const person of Object.values(run.people)) {
+      try {
+        registerDynamicPerson(person);
+      } catch (error) {
+        run.timeline.push({ kind: 'agent', text: `候选人「${person.name}」的公开资料格式异常，已保留搜索结果并跳过 Agent 画像注册。` });
+        console.warn('Failed to register candidate profile:', error instanceof Error ? error.message : error);
+      }
+    }
     if (!search.items.length) run.timeline.push({ kind: 'agent', text: `知乎搜索暂未返回“${query}”对应的公开用户或内容结果。` });
   } catch (error) {
     run.searchError = true;
@@ -308,7 +323,6 @@ async function enrichRun(run: TriggeredRun, state: AppState) {
       ], { response_format: { type: 'json_object' }, max_tokens: 700 });
       const parsed = JSON.parse(content || '{}') as { matches?: { id: string; reason?: string; opening?: string }[]; summary?: string };
       const enriched = (parsed.matches || []).filter(x => run.people[x.id]);
-      if (enriched.length) run.matches = enriched.map(x => x.id);
       if (parsed.summary) run.timeline.push({ kind: 'agent', text: parsed.summary });
       for (const match of enriched) {
         if (match.reason && run.people[match.id]) run.people[match.id].reason = match.reason;
