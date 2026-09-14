@@ -130,5 +130,1156 @@
       "avatarPath": "https://pic3.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
       "url": "https://openapi.zhihu.com/users/1663033214846066688"
     }
+  },
+  "f2c5a009-96c2-45bd-931f-a168dab83820": {
+    "version": 1,
+    "step": "auth",
+    "name": "",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [],
+    "lastView": "discover",
+    "agentChats": {}
+  },
+  "986da5b8-cc6d-457d-9b84-cca9df795a09": {
+    "version": 1,
+    "step": "auth",
+    "name": "测试用户",
+    "impressions": [
+      "公开资料线索一",
+      "公开资料线索二",
+      "公开资料线索三"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "profileSource": "zhihu",
+    "zhihuUser": {
+      "id": "test-user",
+      "fullname": "测试用户",
+      "headline": "测试问答返回流程"
+    },
+    "zhihuUserData": {
+      "answerCount": 1,
+      "articleCount": 0,
+      "followeeCount": 0,
+      "contentItems": []
+    },
+    "interview": {
+      "questions": [
+        {
+          "context": "测试",
+          "question": "第一题？",
+          "hint": "测试",
+          "placeholder": "输入第一题"
+        },
+        {
+          "context": "测试",
+          "question": "第二题？",
+          "hint": "测试",
+          "placeholder": "输入第二题"
+        },
+        {
+          "context": "测试",
+          "question": "第三题？",
+          "hint": "测试",
+          "placeholder": "输入第三题"
+        }
+      ],
+      "answers": [
+        "第一题已保存",
+        "",
+        ""
+      ],
+      "index": 0,
+      "complete": false,
+      "publicImpressions": [
+        "公开资料线索一",
+        "公开资料线索二",
+        "公开资料线索三"
+      ]
+    }
+  },
+  "05f82f34-8fae-4345-8e92-e2af08aa8204": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [
+      "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+      "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+      "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic1.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentCount": 8,
+      "contentItems": [
+        {
+          "contentType": "pin",
+          "title": "知乎黑客松",
+          "summary": "你不出面，先让你的 Agent 和他的 Agent 谈一次；谈完你只决定要不要聊。",
+          "url": "https://www.zhihu.com/pin/2082250521453261624"
+        },
+        {
+          "contentType": "answer",
+          "title": "如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？",
+          "summary": "请问该去哪里举报杨信仰宗教有违党章？兄弟们给条明路我去举报",
+          "url": "https://www.zhihu.com/answer/1935287329372767882"
+        },
+        {
+          "contentType": "question",
+          "title": "神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？",
+          "summary": "对于这部动画，知乎的评价褒贬不一，但是没有近几年的回答。大家对于《四谎》这部动画的印象是什么呢？如果要用一个词语概括它的内核和主旨，那会是什么？这部动画给我的感觉依旧是模糊的。 [图片]",
+          "url": "https://www.zhihu.com/question/13995421443"
+        },
+        {
+          "contentType": "question",
+          "title": "北航大一信类，挂科了怎么办？",
+          "summary": "国家安全缺考挂科了，现在在悔恨中度日 明明在ddl之前还想起来过一次要考试，但是后面又因为其他的事情给忘掉了，助教说要重修。有没有经历过的学长学姐解答一下会不会留挂科记录啊，还能保研吗？明明第一学期绩点还挺高的，这下完全没有动力只想摆烂了",
+          "url": "https://www.zhihu.com/question/644006276"
+        },
+        {
+          "contentType": "question",
+          "title": "北航23级信类大一新生，第一学期总gpa3.76/4，想问问分流有优势吗？",
+          "summary": "线代95，数分88，程设和大英都是80分出头。想问问各位学长学姐这个成绩大概什么水平，以及寒假有什么学习建议。",
+          "url": "https://www.zhihu.com/question/642265835"
+        },
+        {
+          "contentType": "answer",
+          "title": "陌生人，你好！可以推荐一首你最近听的歌吗？",
+          "summary": "郭顶《凄美地》",
+          "url": "https://www.zhihu.com/answer/3135702016"
+        }
+      ],
+      "answerCount": 4
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "如果接下来三个月只能专注一件事，你最想把什么事情做得更好？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "你最近的公开表达里有「知乎黑客松」",
+          "question": "当你判断一个想法值不值得继续做时，通常最看重什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "用最后一个问题，补全你期待的连接",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想学AI Infra，从零开始研究",
+        "是否有商业变现与个人成长背书潜力",
+        ""
+      ],
+      "index": 2,
+      "complete": false,
+      "publicImpressions": [
+        "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+        "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+        "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+      ]
+    }
+  },
+  "f1451846-5369-48bc-9277-b077b123e274": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [
+      "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+      "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+      "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic1.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentCount": 8,
+      "contentItems": [
+        {
+          "contentType": "pin",
+          "title": "知乎黑客松",
+          "summary": "你不出面，先让你的 Agent 和他的 Agent 谈一次；谈完你只决定要不要聊。",
+          "url": "https://www.zhihu.com/pin/2082250521453261624"
+        },
+        {
+          "contentType": "answer",
+          "title": "如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？",
+          "summary": "请问该去哪里举报杨信仰宗教有违党章？兄弟们给条明路我去举报",
+          "url": "https://www.zhihu.com/answer/1935287329372767882"
+        },
+        {
+          "contentType": "question",
+          "title": "神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？",
+          "summary": "对于这部动画，知乎的评价褒贬不一，但是没有近几年的回答。大家对于《四谎》这部动画的印象是什么呢？如果要用一个词语概括它的内核和主旨，那会是什么？这部动画给我的感觉依旧是模糊的。 [图片]",
+          "url": "https://www.zhihu.com/question/13995421443"
+        },
+        {
+          "contentType": "question",
+          "title": "北航大一信类，挂科了怎么办？",
+          "summary": "国家安全缺考挂科了，现在在悔恨中度日 明明在ddl之前还想起来过一次要考试，但是后面又因为其他的事情给忘掉了，助教说要重修。有没有经历过的学长学姐解答一下会不会留挂科记录啊，还能保研吗？明明第一学期绩点还挺高的，这下完全没有动力只想摆烂了",
+          "url": "https://www.zhihu.com/question/644006276"
+        },
+        {
+          "contentType": "question",
+          "title": "北航23级信类大一新生，第一学期总gpa3.76/4，想问问分流有优势吗？",
+          "summary": "线代95，数分88，程设和大英都是80分出头。想问问各位学长学姐这个成绩大概什么水平，以及寒假有什么学习建议。",
+          "url": "https://www.zhihu.com/question/642265835"
+        },
+        {
+          "contentType": "answer",
+          "title": "陌生人，你好！可以推荐一首你最近听的歌吗？",
+          "summary": "郭顶《凄美地》",
+          "url": "https://www.zhihu.com/answer/3135702016"
+        }
+      ],
+      "answerCount": 4
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "如果接下来三个月只能专注一件事，你最想把什么事情做得更好？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "你最近的公开表达里有「知乎黑客松」",
+          "question": "当你判断一个想法值不值得继续做时，通常最看重什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "用最后一个问题，补全你期待的连接",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想学AI Infra，从零开始研究",
+        "是否有商业变现与个人成长背书潜力",
+        ""
+      ],
+      "index": 0,
+      "complete": false,
+      "publicImpressions": [
+        "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+        "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+        "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+      ]
+    }
+  },
+  "01c41e4e-f751-4e76-98b0-ed7835c7a6fa": {
+    "version": 1,
+    "step": "skills",
+    "name": "Windfall",
+    "impressions": [
+      "你正在认真投入：我想学AI Infra，从零开始研究。 你的知乎公开资料也呈现出相近的线索：Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+      "面对想法与行动，你更看重：是否有商业变现与个人成长背书潜力。 你的知乎公开资料也呈现出相近的线索：你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+      "在新的连接中，你期待：让我感到有个人成长。 你的知乎公开资料也呈现出相近的线索：你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你…"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic1.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentCount": 8,
+      "contentItems": [
+        {
+          "contentType": "pin",
+          "title": "知乎黑客松",
+          "summary": "你不出面，先让你的 Agent 和他的 Agent 谈一次；谈完你只决定要不要聊。",
+          "url": "https://www.zhihu.com/pin/2082250521453261624"
+        },
+        {
+          "contentType": "answer",
+          "title": "如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？",
+          "summary": "请问该去哪里举报杨信仰宗教有违党章？兄弟们给条明路我去举报",
+          "url": "https://www.zhihu.com/answer/1935287329372767882"
+        },
+        {
+          "contentType": "question",
+          "title": "神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？",
+          "summary": "对于这部动画，知乎的评价褒贬不一，但是没有近几年的回答。大家对于《四谎》这部动画的印象是什么呢？如果要用一个词语概括它的内核和主旨，那会是什么？这部动画给我的感觉依旧是模糊的。 [图片]",
+          "url": "https://www.zhihu.com/question/13995421443"
+        },
+        {
+          "contentType": "question",
+          "title": "北航大一信类，挂科了怎么办？",
+          "summary": "国家安全缺考挂科了，现在在悔恨中度日 明明在ddl之前还想起来过一次要考试，但是后面又因为其他的事情给忘掉了，助教说要重修。有没有经历过的学长学姐解答一下会不会留挂科记录啊，还能保研吗？明明第一学期绩点还挺高的，这下完全没有动力只想摆烂了",
+          "url": "https://www.zhihu.com/question/644006276"
+        },
+        {
+          "contentType": "question",
+          "title": "北航23级信类大一新生，第一学期总gpa3.76/4，想问问分流有优势吗？",
+          "summary": "线代95，数分88，程设和大英都是80分出头。想问问各位学长学姐这个成绩大概什么水平，以及寒假有什么学习建议。",
+          "url": "https://www.zhihu.com/question/642265835"
+        },
+        {
+          "contentType": "answer",
+          "title": "陌生人，你好！可以推荐一首你最近听的歌吗？",
+          "summary": "郭顶《凄美地》",
+          "url": "https://www.zhihu.com/answer/3135702016"
+        }
+      ],
+      "answerCount": 4
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "如果接下来三个月只能专注一件事，你最想把什么事情做得更好？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "你最近的公开表达里有「知乎黑客松」",
+          "question": "当你判断一个想法值不值得继续做时，通常最看重什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "用最后一个问题，补全你期待的连接",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想学AI Infra，从零开始研究",
+        "是否有商业变现与个人成长背书潜力",
+        "让我感到有个人成长"
+      ],
+      "index": 2,
+      "complete": true,
+      "publicImpressions": [
+        "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+        "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+        "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+      ]
+    }
+  },
+  "f1fe9f15-4288-4731-b550-2ba934142514": {
+    "version": 1,
+    "step": "skills",
+    "name": "Windfall",
+    "impressions": [
+      "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+      "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+      "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic1.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentCount": 8,
+      "contentItems": [
+        {
+          "contentType": "pin",
+          "title": "知乎黑客松",
+          "summary": "你不出面，先让你的 Agent 和他的 Agent 谈一次；谈完你只决定要不要聊。",
+          "url": "https://www.zhihu.com/pin/2082250521453261624"
+        },
+        {
+          "contentType": "answer",
+          "title": "如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？",
+          "summary": "请问该去哪里举报杨信仰宗教有违党章？兄弟们给条明路我去举报",
+          "url": "https://www.zhihu.com/answer/1935287329372767882"
+        },
+        {
+          "contentType": "question",
+          "title": "神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？",
+          "summary": "对于这部动画，知乎的评价褒贬不一，但是没有近几年的回答。大家对于《四谎》这部动画的印象是什么呢？如果要用一个词语概括它的内核和主旨，那会是什么？这部动画给我的感觉依旧是模糊的。 [图片]",
+          "url": "https://www.zhihu.com/question/13995421443"
+        },
+        {
+          "contentType": "question",
+          "title": "北航大一信类，挂科了怎么办？",
+          "summary": "国家安全缺考挂科了，现在在悔恨中度日 明明在ddl之前还想起来过一次要考试，但是后面又因为其他的事情给忘掉了，助教说要重修。有没有经历过的学长学姐解答一下会不会留挂科记录啊，还能保研吗？明明第一学期绩点还挺高的，这下完全没有动力只想摆烂了",
+          "url": "https://www.zhihu.com/question/644006276"
+        },
+        {
+          "contentType": "question",
+          "title": "北航23级信类大一新生，第一学期总gpa3.76/4，想问问分流有优势吗？",
+          "summary": "线代95，数分88，程设和大英都是80分出头。想问问各位学长学姐这个成绩大概什么水平，以及寒假有什么学习建议。",
+          "url": "https://www.zhihu.com/question/642265835"
+        },
+        {
+          "contentType": "answer",
+          "title": "陌生人，你好！可以推荐一首你最近听的歌吗？",
+          "summary": "郭顶《凄美地》",
+          "url": "https://www.zhihu.com/answer/3135702016"
+        }
+      ],
+      "answerCount": 4
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "如果接下来三个月只能专注一件事，你最想把什么事情做得更好？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "你最近的公开表达里有「知乎黑客松」",
+          "question": "当你判断一个想法值不值得继续做时，通常最看重什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "用最后一个问题，补全你期待的连接",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想学AI Infra，从零开始研究",
+        "是否有商业变现与个人成长背书潜力",
+        "让我感到有个人成长"
+      ],
+      "index": 2,
+      "complete": true,
+      "publicImpressions": [
+        "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+        "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+        "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+      ]
+    }
+  },
+  "d47068a0-189d-4642-aac8-4f195049429c": {
+    "version": 1,
+    "step": "done",
+    "name": "Windfall",
+    "impressions": [
+      "公开表达：知乎黑客松；如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？；神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？"
+    ],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "profile",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic1.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentCount": 8,
+      "contentItems": [
+        {
+          "contentType": "pin",
+          "title": "知乎黑客松",
+          "summary": "你不出面，先让你的 Agent 和他的 Agent 谈一次；谈完你只决定要不要聊。",
+          "url": "https://www.zhihu.com/pin/2082250521453261624"
+        },
+        {
+          "contentType": "answer",
+          "title": "如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？",
+          "summary": "请问该去哪里举报杨信仰宗教有违党章？兄弟们给条明路我去举报",
+          "url": "https://www.zhihu.com/answer/1935287329372767882"
+        },
+        {
+          "contentType": "question",
+          "title": "神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？",
+          "summary": "对于这部动画，知乎的评价褒贬不一，但是没有近几年的回答。大家对于《四谎》这部动画的印象是什么呢？如果要用一个词语概括它的内核和主旨，那会是什么？这部动画给我的感觉依旧是模糊的。 [图片]",
+          "url": "https://www.zhihu.com/question/13995421443"
+        },
+        {
+          "contentType": "question",
+          "title": "北航大一信类，挂科了怎么办？",
+          "summary": "国家安全缺考挂科了，现在在悔恨中度日 明明在ddl之前还想起来过一次要考试，但是后面又因为其他的事情给忘掉了，助教说要重修。有没有经历过的学长学姐解答一下会不会留挂科记录啊，还能保研吗？明明第一学期绩点还挺高的，这下完全没有动力只想摆烂了",
+          "url": "https://www.zhihu.com/question/644006276"
+        },
+        {
+          "contentType": "question",
+          "title": "北航23级信类大一新生，第一学期总gpa3.76/4，想问问分流有优势吗？",
+          "summary": "线代95，数分88，程设和大英都是80分出头。想问问各位学长学姐这个成绩大概什么水平，以及寒假有什么学习建议。",
+          "url": "https://www.zhihu.com/question/642265835"
+        },
+        {
+          "contentType": "answer",
+          "title": "陌生人，你好！可以推荐一首你最近听的歌吗？",
+          "summary": "郭顶《凄美地》",
+          "url": "https://www.zhihu.com/answer/3135702016"
+        }
+      ],
+      "answerCount": 4
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "如果接下来三个月只能专注一件事，你最想把什么事情做得更好？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "你最近的公开表达里有「知乎黑客松」",
+          "question": "当你判断一个想法值不值得继续做时，通常最看重什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "用最后一个问题，补全你期待的连接",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想学AI Infra，从零开始研究",
+        "是否有商业变现与个人成长背书潜力",
+        "让我感到有个人成长"
+      ],
+      "index": 2,
+      "complete": true,
+      "publicImpressions": [
+        "Windfall 已连接知乎，但公开资料中暂无一句话介绍。",
+        "你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。",
+        "你最近公开分享过「知乎黑客松」「如何评价武大学生个人公众号“散装忍冬”撰《被开盒的武大女们》造谣诽谤肖母“大量买通稿和记者”？」「神作？庸作？2025年了，大家如何评价11年前的动画《四月是你的谎言》？」，这些内容会成为 Agent 理解你的真实线索。"
+      ]
+    }
+  },
+  "980a5717-ea6e-4283-8bc0-de3c8231e778": {
+    "version": 1,
+    "step": "auth",
+    "name": "",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [],
+    "lastView": "discover",
+    "agentChats": {}
+  },
+  "8726465b-5abd-4e70-bafa-6991fb746f1e": {
+    "version": 1,
+    "step": "auth",
+    "name": "",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [],
+    "lastView": "discover",
+    "agentChats": {}
+  },
+  "4a0cbe1c-74a8-4037-832f-832c633e301e": {
+    "version": 1,
+    "step": "auth",
+    "name": "",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [],
+    "lastView": "discover",
+    "agentChats": {}
+  },
+  "8d32cc63-3f58-4b0d-a71a-92c0a327dae8": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic4.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentItems": [],
+      "answerCount": 4,
+      "articleCount": 0
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "最近有什么具体问题，让你忍不住想继续追下去？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "继续了解你的思考方式",
+          "question": "面对不确定的问题，你会先寻找证据、先动手尝试，还是先找人讨论？为什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "最后，聊聊你想遇见怎样的人",
+          "question": "在 Z1Space 里，你希望遇到怎样的人，展开什么样的对话？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想知道工程硕博和学保有什么区别",
+        "我会先问AI哈哈哈",
+        ""
+      ],
+      "index": 2,
+      "complete": false,
+      "usedPublicFacts": false
+    }
+  },
+  "4486beef-9470-4285-9f1c-1e1738bab3bb": {
+    "version": 1,
+    "step": "impressions",
+    "name": "Windfall",
+    "impressions": [],
+    "skills": [],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic4.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentItems": [],
+      "answerCount": 4,
+      "articleCount": 0
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "最近有什么具体问题，让你忍不住想继续追下去？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "继续了解你的思考方式",
+          "question": "面对不确定的问题，你会先寻找证据、先动手尝试，还是先找人讨论？为什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "最后，聊聊你想遇见怎样的人",
+          "question": "在 Z1Space 里，你希望遇到怎样的人，展开什么样的对话？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想知道工程硕博和学保有什么区别",
+        "我会先问AI哈哈哈",
+        "我希望遇到真正懂我的人"
+      ],
+      "index": 2,
+      "complete": false,
+      "usedPublicFacts": false,
+      "provider": "fallback"
+    },
+    "profileTitles": [
+      "知道工程硕博和学保有什么区别",
+      "先问AI哈哈哈",
+      "遇到真正懂我的人"
+    ]
+  },
+  "f7433412-050d-41a3-8d4d-04a498695d3d": {
+    "version": 1,
+    "step": "done",
+    "name": "Windfall",
+    "impressions": [],
+    "skills": [
+      {
+        "id": "practice",
+        "name": "实践案例库",
+        "icon": "book",
+        "color": "orange",
+        "kind": "content",
+        "desc": "围绕你的兴趣，汇集可借鉴的真实实践与具体方法。",
+        "goal": "寻找 AI 产品、设计和知识管理中的具体实践案例，提炼可参考的方法。",
+        "keywords": "AI 产品 设计 知识管理",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "daily",
+        "name": "每日值得读",
+        "icon": "book",
+        "color": "orange",
+        "kind": "content",
+        "desc": "围绕你的兴趣，整理有经验、有观点的内容。",
+        "goal": "寻找 AI 产品和知识管理的具体实践内容，保留不同观点。",
+        "keywords": "AI 产品 知识管理",
+        "frequency": "每日一次",
+        "enabled": true
+      },
+      {
+        "id": "perspective",
+        "name": "观点碰撞",
+        "icon": "message",
+        "color": "purple",
+        "kind": "people",
+        "desc": "找到对同一件事持不同观点、愿意认真讨论的人。",
+        "goal": "寻找关注产品设计、愿意讨论交互取舍与不同观点的人。",
+        "keywords": "产品 设计 交互",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "build",
+        "name": "项目搭子",
+        "icon": "layers",
+        "color": "green",
+        "kind": "people",
+        "desc": "为正在做的项目，发现技能互补的潜在伙伴。",
+        "goal": "寻找有开发或设计经验、关注独立产品的交流伙伴。",
+        "keywords": "开发 设计 独立",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "knowledge",
+        "name": "知识补给",
+        "icon": "bookmark",
+        "color": "orange",
+        "kind": "content",
+        "desc": "帮你发现知识管理、学习方法和长期积累的经验。",
+        "goal": "寻找知识管理、阅读和学习工具方面的实际经验。",
+        "keywords": "知识管理 阅读 学习",
+        "frequency": "手动运行",
+        "enabled": true
+      }
+    ],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic4.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentItems": [],
+      "answerCount": 4,
+      "articleCount": 0
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "最近有什么具体问题，让你忍不住想继续追下去？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "继续了解你的思考方式",
+          "question": "面对不确定的问题，你会先寻找证据、先动手尝试，还是先找人讨论？为什么？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "最后，聊聊你想遇见怎样的人",
+          "question": "在 Z1Space 里，你希望遇到怎样的人，展开什么样的对话？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "我想知道工程硕博和学保有什么区别",
+        "我会先问AI哈哈哈",
+        "我希望遇到真正懂我的人"
+      ],
+      "index": 2,
+      "complete": true,
+      "usedPublicFacts": false,
+      "provider": "fallback"
+    },
+    "profileTitles": [
+      "知道工程硕博和学保有什么区别",
+      "先问AI哈哈哈",
+      "遇到真正懂我的人"
+    ]
+  },
+  "91a55b8a-0616-44ac-a6ec-f11c400970c0": {
+    "version": 1,
+    "step": "done",
+    "name": "Windfall",
+    "impressions": [
+      "你正在投入：111。",
+      "面对想法与行动，111是你在意的判断。",
+      "在新的连接中，你期待：111。"
+    ],
+    "skills": [
+      {
+        "id": "practice",
+        "name": "实践案例库",
+        "icon": "book",
+        "color": "orange",
+        "kind": "content",
+        "desc": "围绕你的兴趣，汇集可借鉴的真实实践与具体方法。",
+        "goal": "寻找 AI 产品、设计和知识管理中的具体实践案例，提炼可参考的方法。",
+        "keywords": "AI 产品 设计 知识管理",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "daily",
+        "name": "每日值得读",
+        "icon": "book",
+        "color": "orange",
+        "kind": "content",
+        "desc": "围绕你的兴趣，整理有经验、有观点的内容。",
+        "goal": "寻找 AI 产品和知识管理的具体实践内容，保留不同观点。",
+        "keywords": "AI 产品 知识管理",
+        "frequency": "每日一次",
+        "enabled": true
+      },
+      {
+        "id": "perspective",
+        "name": "观点碰撞",
+        "icon": "message",
+        "color": "purple",
+        "kind": "people",
+        "desc": "找到对同一件事持不同观点、愿意认真讨论的人。",
+        "goal": "寻找关注产品设计、愿意讨论交互取舍与不同观点的人。",
+        "keywords": "产品 设计 交互",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "build",
+        "name": "项目搭子",
+        "icon": "layers",
+        "color": "green",
+        "kind": "people",
+        "desc": "为正在做的项目，发现技能互补的潜在伙伴。",
+        "goal": "寻找有开发或设计经验、关注独立产品的交流伙伴。",
+        "keywords": "开发 设计 独立",
+        "frequency": "手动运行",
+        "enabled": true
+      },
+      {
+        "id": "knowledge",
+        "name": "知识补给",
+        "icon": "bookmark",
+        "color": "orange",
+        "kind": "content",
+        "desc": "帮你发现知识管理、学习方法和长期积累的经验。",
+        "goal": "寻找知识管理、阅读和学习工具方面的实际经验。",
+        "keywords": "知识管理 阅读 学习",
+        "frequency": "手动运行",
+        "enabled": true
+      }
+    ],
+    "following": [],
+    "liked": [],
+    "saved": [],
+    "chats": {},
+    "runs": [],
+    "discoverIds": [
+      "chen",
+      "xia",
+      "zhou"
+    ],
+    "contentIds": [
+      "p1",
+      "p3",
+      "p5"
+    ],
+    "lastView": "discover",
+    "agentChats": {},
+    "zhihuUser": {
+      "id": "1663033214846066688",
+      "hashId": "8a20b2902c641fe9eeee257f36ddc5a6",
+      "fullname": "Windfall",
+      "gender": "male",
+      "headline": "",
+      "description": "",
+      "avatarPath": "https://pic4.zhimg.com/v2-658d753495723ce55f67792ae3241233_l.jpg",
+      "url": "https://openapi.zhihu.com/users/1663033214846066688"
+    },
+    "zhihuUserData": {
+      "contentItems": [],
+      "answerCount": 4,
+      "articleCount": 0
+    },
+    "profileSource": "zhihu",
+    "interview": {
+      "questions": [
+        {
+          "context": "从一个开放的问题开始",
+          "question": "最近有什么具体问题，让你忍不住想继续追下去？",
+          "hint": "可以从一个真实场景、正在推进的事，或你在意的变化说起。",
+          "placeholder": "比如：我正在尝试……因为我发现……"
+        },
+        {
+          "context": "继续了解你的思考方式",
+          "question": "遇到一个新想法时，你通常怎样判断它值得继续做？",
+          "hint": "没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。",
+          "placeholder": "我通常会先……因为……"
+        },
+        {
+          "context": "最后，聊聊你想遇见怎样的人",
+          "question": "什么样的交流会让你觉得“这次认识很值得”？",
+          "hint": "可以说说你愿意分享什么，也可以说说你期待别人带来什么。",
+          "placeholder": "我希望认识愿意……的人，一起聊聊……"
+        }
+      ],
+      "answers": [
+        "111",
+        "111",
+        "111"
+      ],
+      "index": 2,
+      "complete": true,
+      "usedPublicFacts": false,
+      "provider": "fallback"
+    },
+    "profileTitles": [
+      "111",
+      "111",
+      "111"
+    ]
   }
 }

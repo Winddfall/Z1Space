@@ -25,6 +25,7 @@ type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
 type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string };
 type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; people: Record<string, Person>; llmReady?: boolean; llmError?: string };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
+type ProfileSynthesis = { titles: string[]; impressions: string[]; usedPublicFacts: boolean; provider: 'deepseek' | 'fallback' };
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const dataDir = process.env.Z1SPACE_DATA_DIR || join(root, '.data');
@@ -100,6 +101,63 @@ async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; c
   if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
   const payload = await response.json() as { choices?: { message?: { content?: string } }[] };
   return payload.choices?.[0]?.message?.content?.trim() || '';
+}
+function synthesisText(value: unknown, limit: number) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
+function profileAnswerText(value: string) { return synthesisText(value, 420).replace(/[。！？!?]+$/, ''); }
+function profileAnswerCore(value: string) {
+  const original = profileAnswerText(value);
+  let text = original;
+  const prefix = /^(我想|我正在|我希望|我更看重|我通常会|我会|是否有|如果|关于|对于|在)/;
+  while (prefix.test(text)) text = text.replace(prefix, '').trim();
+  return text || original;
+}
+function profileTitleFromAnswer(answer: string, index: number) {
+  return (profileAnswerCore(answer) || `回答 ${index + 1}`).slice(0, 18);
+}
+function fallbackProfileSynthesis(answers: string[], publicFacts: string[]): ProfileSynthesis {
+  const cores = answers.map(profileAnswerCore);
+  const impressions = [
+    `你正在投入：${cores[0]}。`,
+    `面对想法与行动，${cores[1]}是你在意的判断。`,
+    `在新的连接中，你期待：${cores[2]}。`
+  ];
+  if (publicFacts[0]) impressions[0] = `${impressions[0]} 公开资料里还提到：${profileAnswerText(publicFacts[0])}。`;
+  return { titles: answers.map(profileTitleFromAnswer), impressions: impressions.map(value => synthesisText(value, 400)), usedPublicFacts: publicFacts.length > 0, provider: 'fallback' };
+}
+function parseProfileSynthesis(content: string, usedPublicFacts: boolean): ProfileSynthesis | null {
+  const match = content.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]) as { titles?: unknown; impressions?: unknown };
+    const titles = Array.isArray(parsed.titles) ? parsed.titles.map(value => synthesisText(value, 24)) : [];
+    const impressions = Array.isArray(parsed.impressions) ? parsed.impressions.map(value => synthesisText(value, 400)) : [];
+    const forbidden = /暂无|未提供|未读取|资料不足|不(会)?臆测|不清楚|不知道/;
+    if (titles.length !== 3 || impressions.length !== 3 || [...titles, ...impressions].some(value => !value || forbidden.test(value))) return null;
+    return { titles, impressions, usedPublicFacts, provider: 'deepseek' };
+  } catch { return null; }
+}
+function profilePublicFacts(req: IncomingMessage) {
+  const session = authSession(req);
+  const user = session.user;
+  const userData = session.userData;
+  const headline = synthesisText(user?.headline, 160);
+  const description = synthesisText(user?.description, 240);
+  const titles = (userData?.contentItems || []).map(item => synthesisText(item.title, 120)).filter(Boolean).slice(0, 3);
+  return [
+    ...(headline ? [`公开介绍：${headline}`] : []),
+    ...(description && description !== headline ? [`公开简介：${description}`] : []),
+    ...titles.map(title => `公开表达标题：${title}`)
+  ];
+}
+async function synthesizeProfile(answers: string[], publicFacts: string[]): Promise<ProfileSynthesis> {
+  const fallback = fallbackProfileSynthesis(answers, publicFacts);
+  try {
+    const content = await deepseekChat([
+      { role: 'system', content: '你是 Z1Space 的用户画像编辑器。只能基于输入中的三次回答和明确给出的公开资料事实生成中文画像，绝不补充外部信息。若公开资料事实为空，直接忽略这一维度；不要解释资料为空、没有、未读取、未提供或信息不足，也不要说不会臆测。不得把公开资料与回答强行说成相近。输出严格 JSON，不使用 Markdown，格式为 {"titles":["...","...","..."],"impressions":["...","...","..."]}。三个标题须为 4 到 14 个中文字符或短语，具体且互不重复；三段画像每段 45 到 110 字，语气克制、可编辑、只陈述可由输入支持的倾向。' },
+      { role: 'user', content: JSON.stringify({ answers, publicFacts }) }
+    ], { response_format: { type: 'json_object' }, temperature: 0.35 });
+    return content ? parseProfileSynthesis(content, publicFacts.length > 0) || fallback : fallback;
+  } catch { return fallback; }
 }
 async function enrichRun(run: Run) {
   const query = `${run.skill.goal || ''} ${run.skill.keywords || ''}`.trim() || run.skill.name;
@@ -187,6 +245,12 @@ const server = createServer(async (req, res) => {
       if (!conversationMatch[2] && req.method === 'GET') return json(res, 200, humanChatStore.conversation(human.id, id));
       if (conversationMatch[2] === 'messages' && req.method === 'POST') return json(res, 201, await humanChatStore.send(human.id, id, await body(req)));
       if (conversationMatch[2] === 'read' && req.method === 'POST') { const input = await body(req) as { seq?: number }; return json(res, 200, await humanChatStore.read(human.id, id, Number(input.seq || 0))); }
+    }
+    if (url.pathname === '/api/profile/synthesis' && req.method === 'POST') {
+      const input = await body(req, 8_192) as { answers?: unknown };
+      const answers = Array.isArray(input.answers) ? input.answers.map(value => synthesisText(value, 420)) : [];
+      if (answers.length !== 3 || answers.some(answer => !answer)) return json(res, 400, { error: 'INVALID_PROFILE_ANSWERS' });
+      return json(res, 200, await synthesizeProfile(answers, profilePublicFacts(req)));
     }
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, currentState(req, res));
     if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); sessions.set(id, { ...fresh(), ...next, version: 1 }); await saveSessions(); return json(res, 200, sessions.get(id)); }

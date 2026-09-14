@@ -7,39 +7,39 @@
   const saveState = value => fetch('/api/state', { method: 'PUT', headers, body: JSON.stringify(value) }).catch(() => null);
   const originalRenderAuth = renderAuth;
   let authSession = null;
+  let stayOnAuth = false;
+  const sameZhihuUser = (snapshot, user) => Boolean(snapshot?.zhihuUser?.id && user?.id && snapshot.zhihuUser.id === user.id);
   async function loadAuthSession() {
     try { const response = await fetch('/api/auth/session', { credentials: 'same-origin' }); authSession = await response.json(); return authSession; } catch { authSession = { mode: 'demo', authenticated: false, oauthConfigured: false }; return authSession; }
   }
+  async function restoreExistingSpace(user) {
+    const remote = await getState().catch(() => null);
+    if (!remote || remote.step === 'auth' || !sameZhihuUser(remote, user)) return false;
+    const userData = authSession?.userData || remote.zhihuUserData;
+    const changed = state.name !== (user.fullname || state.name) || state.zhihuUser?.id !== user.id || state.zhihuUserData !== userData;
+    state = { ...state, ...remote, name: user.fullname || remote.name, zhihuUser: user, zhihuUserData: userData };
+    if (migrateZhihuProfile() || changed) persist();
+    render();
+    return true;
+  }
   function isRealZhihuProfile() { return state.profileSource === 'zhihu' && Boolean(state.zhihuUser); }
   function impressionSources() {
-    return isRealZhihuProfile()
-      ? ['知乎公开一句话介绍', '知乎公开个人简介', '授权范围与画像边界']
-      : ['知乎公开资料', '知乎公开资料', '授权范围与画像边界'];
+    if (state.interview?.complete) {
+      const source = state.interview.usedPublicFacts ? '已读取的公开资料与本次回答' : '本次回答';
+      return [`${source} 01`, `${source} 02`, `${source} 03`];
+    }
+    return ['本次回答 01', '本次回答 02', '本次回答 03'];
   }
   window.z1spaceImpressionSources = impressionSources;
-  function zhihuIdentity(user) {
-    if (!user) return '知乎账号';
-    const id = String(user.id || '').trim();
-    const hashId = String(user.hashId || '').trim();
-    if (id && hashId) return `知乎用户 ID：${id} · hash ID：${hashId}`;
-    return id ? `知乎用户 ID：${id}` : (hashId ? `知乎 hash ID：${hashId}` : '知乎账号');
-  }
-  function zhihuProfileMeta(user) {
-    if (!user) return '';
-    const identity = zhihuIdentity(user);
-    const url = String(user.url || '').trim();
-    return url ? `${identity} · ${url.replace(/^https?:\/\//, '')}` : identity;
-  }
   function zhihuImpressions(user, userData = {}) {
-    const name = String(user.fullname || '这位知乎用户').trim();
     const headline = String(user.headline || '').trim();
     const description = String(user.description || '').trim();
     const titles = Array.isArray(userData.contentItems) ? userData.contentItems.map(item => String(item.title || '').trim()).filter(Boolean).slice(0, 3) : [];
     return [
-      headline ? `你在知乎公开资料中将自己介绍为「${headline}」。` : `${name} 已连接知乎，但公开资料中暂无一句话介绍。`,
-      description ? `从你的知乎公开简介来看：${description}` : '你的知乎公开简介暂未提供足够信息，Agent 不会据此臆测你的兴趣。',
-      titles.length ? `你最近公开分享过「${titles.join('」「')}」，这些内容会成为 Agent 理解你的真实线索。` : '暂未读取到你的公开回答或文章，Agent 不会据此臆测你的兴趣。'
-    ];
+      headline ? `知乎公开介绍：${headline}` : '',
+      description && description !== headline ? `知乎公开简介：${description}` : '',
+      titles.length ? `公开表达：${titles.join('；')}` : ''
+    ].filter(Boolean);
   }
   function applyZhihuUser(user) {
     if (!user) return;
@@ -66,8 +66,20 @@
     if (!button) return;
     button.disabled = true;
     button.onclick = () => {};
-    loadAuthSession().then(auth => {
-      if (auth.authenticated && auth.user) { applyZhihuUser(auth.user); render(); return; }
+    loadAuthSession().then(async auth => {
+      if (auth.authenticated && auth.user) {
+        if (!stayOnAuth && await restoreExistingSpace(auth.user)) return;
+        if (stayOnAuth) {
+          if (note) note.textContent = '知乎账号已连接。确认资料无误后，可以继续创建你的画像。';
+          button.innerHTML = '继续创建画像 ' + icon('arrow');
+          button.disabled = false;
+          button.onclick = () => { stayOnAuth = false; applyZhihuUser(auth.user); render(); };
+          return;
+        }
+        applyZhihuUser(auth.user);
+        render();
+        return;
+      }
       if (auth.oauthConfigured) {
         if (note) note.textContent = '知乎 OAuth 真实接入模式 · 只读取你授权的公开资料，OAuth Token 仅保存在服务端。';
         button.innerHTML = '同意授权，连接知乎 ' + icon('arrow');
@@ -88,36 +100,273 @@
   };
 
   const originalPersist = persist;
-  persist = function () { originalPersist(); saveState(state); };
+  let stateSaveQueue = Promise.resolve();
+  persist = function () {
+    originalPersist();
+    const snapshot = JSON.parse(JSON.stringify(state));
+    stateSaveQueue = stateSaveQueue.then(() => saveState(snapshot));
+  };
   const profileText = skill => skill.profileDescription || (skill.goal ? `正在通过 Agent：${skill.goal.replace(/[。.!！?？]+$/, '')}，并把这轮探索中形成的连接沉淀为个人画像。` : `正在使用「${skill.name}」探索值得认识的人与信息。`);
   const originalSaveSkill = saveSkill;
   saveSkill = function (form) { originalSaveSkill(form); const last = state.skills[state.skills.length - 1]; if (last) { last.profileTitle = last.name; last.profileDescription = profileText(last); persist(); } };
-  function profileCount(value) { return Number.isFinite(Number(value)) ? `${Number(value)} 个` : '暂未读取'; }
   function profileContentCount(type) {
     const items = state.zhihuUserData?.contentItems || [];
     return items.filter(item => item.contentType === type).length;
   }
-  function replaceRealProfile(html) {
-    if (!isRealZhihuProfile()) return html;
-    const user = state.zhihuUser;
-    const data = state.zhihuUserData || {};
-    const name = esc(user.fullname || state.name || '知乎用户');
-    const headline = esc(user.headline || user.description || '知乎公开资料已连接');
-    const avatar = String(user.avatarPath || '').trim();
-    const answers = data.answerCount;
-    const articles = data.articleCount;
-    const followees = data.followeeCount;
-    return html
-      .replaceAll('你好，这是你公开资料里的画像。', `你好，${name}。这是你公开资料里的画像。`)
-      .replaceAll('从你的知乎表达中，形成三段印象。你可以自由修改，让分身更像自己。', '基于你授权的知乎公开资料，形成三段可编辑的印象。')
-      .replace(`<h3>${name}</h3><p>知乎公开资料已连接</p>`, `<h3>${name}</h3><p>${headline}</p><small class="profile-source-id">${esc(zhihuProfileMeta(user))}</small>`)
-      .replace('<span>公开回答</span><b>暂未读取</b>', `<span>公开回答</span><b>${answers === undefined ? '暂未读取' : `${answers} 篇`}</b>`)
-      .replace('<span>公开文章</span><b>暂未读取</b>', `<span>公开文章</span><b>${articles === undefined ? '暂未读取' : `${articles} 篇`}</b>`)
-      .replace('<span>关注用户</span><b>暂未读取</b>', `<span>关注用户</span><b>${profileCount(followees)}</b>`)
-            .replace(/<img([^>]*class="avatar[^"]*"[^>]*)src="[^"]*"/g, avatar ? `<img$1src="${esc(avatar)}"` : '$&');
+  const randomPick = items => items[Math.floor(Math.random() * items.length)];
+  const shorten = (value, max = 128) => { const text = String(value || '').replace(/\s+/g, ' ').trim(); return text.length > max ? `${text.slice(0, max).trim()}…` : text; };
+  const sentence = value => shorten(value, 156).replace(/[。！？!?]+$/, '');
+  let interviewTransitionDirection = 'forward';
+
+  function interviewQuestions() {
+    const user = state.zhihuUser || {};
+    const headline = String(user.headline || '').trim();
+    const description = String(user.description || '').trim();
+    const titles = Array.isArray(state.zhihuUserData?.contentItems) ? state.zhihuUserData.contentItems.map(item => String(item.title || '').trim()).filter(Boolean) : [];
+    const hasPublicProfile = isRealZhihuProfile() && Boolean(headline || description || titles.length);
+    const currentFocus = headline || description;
+    return [
+      {
+        context: hasPublicProfile && currentFocus ? `从你的知乎公开介绍「${shorten(currentFocus, 38)}」出发` : '从一个开放的问题开始',
+        question: hasPublicProfile && currentFocus
+          ? `除了公开资料里的这句话，最近最值得你投入时间解决的问题是什么？`
+          : randomPick(['最近让你反复琢磨、愿意投入时间的一件事是什么？', '如果接下来三个月只能专注一件事，你最想把什么事情做得更好？', '最近有什么具体问题，让你忍不住想继续追下去？']),
+        hint: '可以从一个真实场景、正在推进的事，或你在意的变化说起。',
+        placeholder: '比如：我正在尝试……因为我发现……'
+      },
+      {
+        context: titles.length ? `你最近的公开表达里有「${shorten(titles[0], 34)}」` : (hasPublicProfile ? '结合你的公开资料脉络' : '继续了解你的思考方式'),
+        question: titles.length
+          ? '当你判断一个想法值不值得继续做时，通常最看重什么？'
+          : randomPick(['遇到一个新想法时，你通常怎样判断它值得继续做？', '面对不确定的问题，你会先寻找证据、先动手尝试，还是先找人讨论？为什么？', '什么样的过程会让你觉得“这件事值得认真做下去”？']),
+        hint: '没有标准答案。讲讲你的判断方式、一次经历或你常坚持的取舍。',
+        placeholder: '我通常会先……因为……'
+      },
+      {
+        context: hasPublicProfile ? '用最后一个问题，补全你期待的连接' : '最后，聊聊你想遇见怎样的人',
+        question: randomPick(['在 Z1Space 里，你希望遇到怎样的人，展开什么样的对话？', '如果有人能带给你一种新的视角，你最希望 TA 擅长或经历过什么？', '什么样的交流会让你觉得“这次认识很值得”？']),
+        hint: '可以说说你愿意分享什么，也可以说说你期待别人带来什么。',
+        placeholder: '我希望认识愿意……的人，一起聊聊……'
+      }
+    ];
   }
-  const originalRenderImpressions = renderImpressions;
-  renderImpressions = function () { originalRenderImpressions(); const app = document.getElementById('app'); if (app) app.innerHTML = replaceRealProfile(app.innerHTML); bindImpressionCounters(); };
+
+  function ensureInterview() {
+    const interview = state.interview;
+    const validQuestions = Array.isArray(interview?.questions) && interview.questions.length === 3 && interview.questions.every(question => question && ['context', 'question', 'hint', 'placeholder'].every(key => typeof question[key] === 'string'));
+    if (validQuestions && Array.isArray(interview.answers)) {
+      const missingTitles = !Array.isArray(state.profileTitles) || state.profileTitles.length !== 3;
+      const legacyUnknownText = /暂无一句话介绍|暂未提供足够信息|暂未读取到你的公开回答|不会据此臆测|公开资料也呈现出相近的线索/.test((state.impressions || []).join(''));
+      if (interview.complete && (missingTitles || legacyUnknownText)) {
+        const fallback = fallbackInterviewSynthesis(interview);
+        if (missingTitles) state.profileTitles = fallback.titles;
+        if (legacyUnknownText) state.impressions = fallback.impressions;
+        interview.usedPublicFacts = false;
+        if (!interview.synthesisRequested) {
+          interview.synthesisRequested = true;
+          void synthesizeInterviewProfile(interview).then(synthesis => {
+            if (state.interview !== interview || !interview.complete) return;
+            state.impressions = synthesis.impressions;
+            state.profileTitles = synthesis.titles;
+            interview.usedPublicFacts = synthesis.usedPublicFacts;
+            interview.provider = synthesis.provider;
+            persist();
+            render();
+          });
+        }
+        persist();
+      }
+      return interview;
+    }
+    const next = {
+      questions: interviewQuestions(),
+      answers: ['', '', ''],
+      index: 0,
+      complete: false,
+      usedPublicFacts: false
+    };
+    state.interview = next;
+    persist();
+    return next;
+  }
+
+  function interviewIdentityCard() {
+    const user = state.zhihuUser || {};
+    const data = state.zhihuUserData || {};
+    const headline = String(user.headline || user.description || '').trim();
+    const connected = isRealZhihuProfile();
+    const publicCounts = connected ? [
+      data.answerCount === undefined ? '' : `<div class="source-line"><span>公开回答</span><b>${data.answerCount} 篇</b></div>`,
+      data.articleCount === undefined ? '' : `<div class="source-line"><span>公开文章</span><b>${data.articleCount} 篇</b></div>`,
+      Number.isFinite(Number(data.followeeCount)) ? `<div class="source-line"><span>关注用户</span><b>${Number(data.followeeCount)} 个</b></div>` : ''
+    ].filter(Boolean).join('') : '';
+    return `<aside class="identity-card interview-identity">${ownAvatar('big')}<div><h3>${esc(state.name || '知乎用户')}</h3><p>${esc(headline || (connected ? '知乎账号已连接' : '准备开始创建你的 Space'))}</p></div>${publicCounts ? `<div class="divider"></div>${publicCounts}` : ''}<div class="divider"></div><p class="demo-label">Agent 只会结合你授权的公开资料与本次主动回答生成画像，不展示技术标识或私密信息。</p></aside>`;
+  }
+
+  function interviewAnswerCore(answer) {
+    const original = sentence(answer);
+    let text = original;
+    const prefix = /^(我想|我正在|我希望|我更看重|我通常会|我会|是否有|如果|关于|对于|在)/;
+    while (prefix.test(text)) text = text.replace(prefix, '').trim();
+    return text || original;
+  }
+  function fallbackInterviewTitle(answer, index) {
+    return shorten(interviewAnswerCore(answer) || `回答 ${index + 1}`, 18);
+  }
+  function interviewImpressions(interview) {
+    const answers = interview.answers.map(interviewAnswerCore);
+    return [
+      `你正在投入：${answers[0]}。`,
+      `面对想法与行动，${answers[1]}是你在意的判断。`,
+      `在新的连接中，你期待：${answers[2]}。`
+    ].map(value => shorten(value, 400));
+  }
+  function fallbackInterviewSynthesis(interview) {
+    return {
+      titles: interview.answers.map(fallbackInterviewTitle),
+      impressions: interviewImpressions(interview),
+      usedPublicFacts: false,
+      provider: 'fallback'
+    };
+  }
+  function validInterviewSynthesis(value) {
+    return value && Array.isArray(value.titles) && value.titles.length === 3 && value.titles.every(item => typeof item === 'string' && item.trim())
+      && Array.isArray(value.impressions) && value.impressions.length === 3 && value.impressions.every(item => typeof item === 'string' && item.trim());
+  }
+  async function synthesizeInterviewProfile(interview) {
+    const fallback = fallbackInterviewSynthesis(interview);
+    try {
+      const response = await fetch('/api/profile/synthesis', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({ answers: interview.answers })
+      });
+      const result = await response.json();
+      if (!response.ok || !validInterviewSynthesis(result)) return fallback;
+      return {
+        titles: result.titles.map(item => shorten(item, 24)),
+        impressions: result.impressions.map(item => shorten(item, 400)),
+        usedPublicFacts: Boolean(result.usedPublicFacts),
+        provider: result.provider === 'deepseek' ? 'deepseek' : 'fallback'
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  function renderInterviewResult(interview) {
+    document.title = 'Z1Space · 你的画像';
+    app.innerHTML = header(1) + `<main class="onboard-container interview-onboarding"><div class="onboard-title"><div><span class="eyebrow">STEP 02 / YOUR AGENT</span><h1>这是你的 Z1Space 画像。</h1><p>Agent 已结合你的三次回答${interview.usedPublicFacts ? '与已读取的知乎公开资料' : ''}，整理成可编辑的第一版画像。</p></div><span class="pill">${icon('spark')} 已生成画像</span></div><div class="onboard-grid">${interviewIdentityCard()}<div class="interview-result interview-card interview-card-enter"><div class="interview-result-head"><div><span class="interview-kicker">YOUR Z1SPACE PROFILE</span><h2>先看看，哪里最像你。</h2></div><button class="text-button interview-restart" data-action="interview-restart">重新回答</button></div>${impressionFields(state.impressions)}<div class="form-actions">${button('interview-back', '上一步', 'button ghost')}<div>${button('save-impressions', '保存修改', 'button secondary')}${button('continue-impressions', '保存并继续 ' + icon('arrow'))}</div></div></div></div></main>`;
+    bindImpressionCounters();
+  }
+
+  function renderInterviewQuestion(interview) {
+    const index = Math.max(0, Math.min(2, Number(interview.index) || 0));
+    interview.index = index;
+    const question = interview.questions[index];
+    const answered = String(interview.answers[index] || '');
+    const progress = ((index + 1) / 3) * 100;
+    const connected = isRealZhihuProfile();
+    const transitionClass = interviewTransitionDirection === 'back' ? 'interview-card-back-enter' : 'interview-card-enter';
+    interviewTransitionDirection = 'forward';
+    document.title = 'Z1Space · 创建分身';
+    app.innerHTML = header(1) + `<main class="onboard-container interview-onboarding"><div class="onboard-title"><div><span class="eyebrow">STEP 02 / YOUR AGENT</span><h1>让 Agent 先认识你。</h1><p>用三个问题补全你希望 Agent 认识的部分，再生成属于你的 Z1Space 画像。</p></div><span class="pill">${icon('check')} ${connected ? '知乎公开资料已连接' : '开始创建画像'}</span></div><div class="onboard-grid">${interviewIdentityCard()}<section class="interview-card ${transitionClass}" data-interview-card><div class="interview-card-top"><div><span class="interview-kicker">AGENT INTERVIEW</span><span class="interview-question-number">问题 0${index + 1} / 03</span></div><span class="interview-status">正在倾听</span></div><div class="interview-progress" aria-label="访谈进度：第 ${index + 1} 题，共 3 题"><span style="width:${progress}%"></span></div><div class="interview-progress-labels"><span class="done">认识方向</span><span class="${index > 0 ? 'done' : ''}">了解方法</span><span class="${index > 1 ? 'done' : ''}">期待连接</span></div><div class="interview-question"><span>${esc(question.context)}</span><h2>${esc(question.question)}</h2><p>${esc(question.hint)}</p></div><label class="interview-answer-label" for="interview-answer">你的回答</label><textarea id="interview-answer" class="interview-answer" maxlength="420" placeholder="${esc(question.placeholder)}" aria-describedby="interview-answer-note">${esc(answered)}</textarea><div class="interview-answer-meta" id="interview-answer-note"><span>自然地说就好，写下真实想法即可。</span><span data-interview-counter>${answered.length}/420</span></div><div class="interview-actions">${button('interview-back', '上一步', 'button ghost')}<button type="button" class="button interview-next" data-action="interview-next">${index === 2 ? '生成我的画像 ' + icon('spark') : '回答完毕，下一题 ' + icon('arrow')}</button></div></section></div></main>`;
+    const answer = document.getElementById('interview-answer');
+    answer?.focus();
+  }
+
+  renderImpressions = function () {
+    const interview = ensureInterview();
+    if (interview.complete) renderInterviewResult(interview);
+    else renderInterviewQuestion(interview);
+  };
+
+  document.addEventListener('input', event => {
+    const input = event.target;
+    if (input?.id !== 'interview-answer') return;
+    const counter = document.querySelector('[data-interview-counter]');
+    if (counter) counter.textContent = `${input.value.length}/420`;
+  });
+
+  document.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+    if (target.dataset.action === 'interview-restart') {
+      const interview = ensureInterview();
+      delete state.profileTitles;
+      delete state.interview;
+      persist();
+      renderImpressions();
+      return;
+    }
+    if (target.dataset.action === 'interview-back') {
+      const interview = ensureInterview();
+      const answer = document.getElementById('interview-answer');
+      const currentAnswer = String(answer?.value || '').trim();
+      if (!interview.complete && currentAnswer) interview.answers[Math.max(0, Math.min(2, Number(interview.index) || 0))] = currentAnswer;
+      target.disabled = true;
+      document.querySelector('.interview-card')?.classList.add('is-leaving-back');
+      window.setTimeout(() => {
+        if (interview.complete) {
+          interview.complete = false;
+          interview.index = 2;
+        } else if (Number(interview.index) > 0) {
+          interview.index = Number(interview.index) - 1;
+        } else {
+          stayOnAuth = true;
+          state.step = 'auth';
+        }
+        interviewTransitionDirection = state.step === 'auth' ? 'forward' : 'back';
+        persist();
+        render();
+      }, 240);
+      return;
+    }
+    if (target.dataset.action !== 'interview-next') return;
+    const interview = ensureInterview();
+    const answer = document.getElementById('interview-answer');
+    const value = String(answer?.value || '').trim();
+    if (!value) {
+      toast('写下一点真实想法，让 Agent 更了解你。');
+      answer?.focus();
+      return;
+    }
+    const index = Math.max(0, Math.min(2, Number(interview.index) || 0));
+    interview.answers[index] = value;
+    const card = document.querySelector('[data-interview-card]');
+    target.disabled = true;
+    card?.classList.add('is-leaving');
+    window.setTimeout(async () => {
+      if (index !== 2) {
+        interview.index = index + 1;
+        persist();
+        renderImpressions();
+        return;
+      }
+      document.querySelector('.interview-status')?.replaceChildren(document.createTextNode('正在整理画像'));
+      try {
+        const synthesis = await synthesizeInterviewProfile(interview);
+        state.impressions = synthesis.impressions;
+        state.profileTitles = synthesis.titles;
+        interview.usedPublicFacts = synthesis.usedPublicFacts;
+        interview.provider = synthesis.provider;
+      } catch {
+        const fallback = fallbackInterviewSynthesis(interview);
+        state.impressions = fallback.impressions;
+        state.profileTitles = fallback.titles;
+        interview.usedPublicFacts = false;
+        interview.provider = 'fallback';
+      }
+      interview.complete = true;
+      persist();
+      renderImpressions();
+    }, 240);
+  });
+
+  const interviewStyle = document.createElement('style');
+  interviewStyle.textContent = `.interview-onboarding{max-width:1110px}.interview-card{min-height:500px;padding:30px;border:1px solid #dfe7f6;border-radius:20px;background:radial-gradient(circle at 100% 0,#eef4ff 0,rgba(238,244,255,0) 34%),#fff;box-shadow:0 18px 42px rgba(30,62,124,.07);overflow:hidden}.interview-card-enter{animation:interview-card-in .42s cubic-bezier(.22,1,.36,1) both}.interview-card-back-enter{animation:interview-card-back-in .42s cubic-bezier(.22,1,.36,1) both}.interview-card.is-leaving,.interview-card.is-leaving-back{pointer-events:none}.interview-card.is-leaving{animation:interview-card-out .24s cubic-bezier(.55,0,1,.45) both}.interview-card.is-leaving-back{animation:interview-card-back-out .24s cubic-bezier(.55,0,1,.45) both}.interview-card-top,.interview-result-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.interview-kicker{display:block;color:#2459ec;font-size:11px;font-weight:800;letter-spacing:.13em}.interview-question-number{display:block;margin-top:5px;color:#8491a5;font-size:13px}.interview-status{padding:6px 10px;border-radius:999px;background:#eef4ff;color:#3864c7;font-size:12px}.interview-progress{height:8px;margin-top:25px;overflow:hidden;border-radius:999px;background:#e8edf6}.interview-progress span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2459ec,#6b96ff);box-shadow:0 2px 8px rgba(36,89,236,.28);transition:width .5s cubic-bezier(.22,1,.36,1)}.interview-progress-labels{display:grid;grid-template-columns:repeat(3,1fr);margin-top:9px;color:#9aa6b8;font-size:11px}.interview-progress-labels span:nth-child(2){text-align:center}.interview-progress-labels span:nth-child(3){text-align:right}.interview-progress-labels .done{color:#4d70bd;font-weight:700}.interview-question{padding:46px 0 26px}.interview-question>span{display:inline-flex;padding:6px 10px;border-radius:8px;background:#f4f7fc;color:#7386a4;font-size:12px}.interview-question h2{max-width:720px;margin:16px 0 10px;font-size:clamp(24px,3vw,32px);letter-spacing:-.03em;line-height:1.38}.interview-question p{max-width:650px;margin:0;font-size:14px}.interview-answer-label{display:block;margin-bottom:9px;color:#455570;font-size:14px;font-weight:700}.interview-answer{width:100%;min-height:122px;padding:16px;border:1px solid #dfe6f0;border-radius:14px;resize:vertical;background:#fbfcff;color:#40516b;font-size:15px;line-height:1.8;transition:border-color .18s,box-shadow .18s,background .18s}.interview-answer::placeholder{color:#a2adbd}.interview-answer:focus{border-color:#89a8fa;outline:0;background:#fff;box-shadow:0 0 0 4px #e9efff}.interview-answer-meta{display:flex;justify-content:space-between;gap:16px;margin-top:8px;color:#98a4b6;font-size:12px}.interview-actions{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:29px;padding-top:20px;border-top:1px solid #e9edf4}.interview-next{min-width:176px}.interview-result h2{margin:6px 0 0;font-size:24px}.interview-restart{padding:6px 0;color:#6c7d95;font-size:13px}.interview-result .impression-list{margin-top:27px}@keyframes interview-card-in{from{opacity:0;transform:translate3d(20px,8px,0)}to{opacity:1;transform:translate3d(0,0,0)}}@keyframes interview-card-out{to{opacity:0;transform:translate3d(-24px,0,0)}}@keyframes interview-card-back-in{from{opacity:0;transform:translate3d(-20px,8px,0)}to{opacity:1;transform:translate3d(0,0,0)}}@keyframes interview-card-back-out{to{opacity:0;transform:translate3d(24px,0,0)}}@media(max-width:720px){.interview-card{min-height:0;padding:22px;border-radius:17px}.interview-question{padding:32px 0 21px}.interview-question h2{font-size:25px}.interview-actions{align-items:stretch;flex-direction:column-reverse}.interview-next{width:100%}.interview-answer-meta{align-items:flex-start;flex-direction:column;gap:2px}.interview-result-head{align-items:flex-start}.interview-result .form-actions{margin-top:20px}}@media(prefers-reduced-motion:reduce){.interview-card-enter,.interview-card-back-enter,.interview-card.is-leaving,.interview-card.is-leaving-back{animation:none}.interview-progress span{transition:none}}`;
+  document.head.appendChild(interviewStyle);
 
   const originalProfileView = profileView;
   profileView = function () { let html = originalProfileView(); const entries = state.skills.map(s => `<div class="profile-impression"><span>${skillIcon(s)}</span><div><h3>${esc(s.profileTitle || s.name)}</h3><p>${esc(profileText(s))}</p></div></div>`).join(''); if (entries) html = html.replace('</section><div class="demo-settings">', `<div class="profile-section"><h2>${icon('spark')} 由任务形成的画像</h2>${entries}</div></section><div class="demo-settings">`); return html; };
@@ -189,19 +438,67 @@
   style.textContent = `.agent-message-panel{margin:0 0 28px;padding:24px;background:linear-gradient(145deg,#fff,#f8faff);border:1px solid #e6ebf5;border-radius:22px;box-shadow:0 12px 30px rgba(35,68,132,.06)}.agent-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.agent-panel-head h2{margin:5px 0 0;font-size:22px}.agent-status-pill,.agent-live-dot{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:#eef2f8;color:#77849a;font-size:12px;font-weight:700}.agent-status-pill.done{background:#e9f8f1;color:#1b9b68}.agent-live-dot{background:#eaf8f1;color:#14855a}.agent-live-dot:before{content:'';width:7px;height:7px;border-radius:50%;background:#25b977;box-shadow:0 0 0 4px #d9f3e7}.agent-timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0 16px}.agent-stage{display:flex;align-items:center;gap:9px;color:#a1acbd;font-size:13px}.agent-stage span{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#eef1f6;font-size:11px;font-weight:700}.agent-stage.current{color:#2459ec}.agent-stage.current span{background:#e8efff;color:#2459ec}.agent-stage.done{color:#27976a}.agent-stage.done span{background:#e5f7ee;color:#27976a}.agent-stage p{margin:0;color:inherit}.agent-summary{padding:13px 15px;border-radius:13px;background:#f2f5fb;color:#5c6d87;font-size:13px;line-height:1.7}.agent-results-head{display:flex;align-items:end;justify-content:space-between;margin:24px 0 12px}.agent-results-head h3{margin:4px 0 0;font-size:17px}.agent-person-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.agent-person-card{padding:17px;border:1px solid #e5eaf3;border-radius:16px;background:#fff;transition:transform .16s,box-shadow .16s}.agent-person-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(35,68,132,.1)}.agent-card-top,.agent-person-head{display:flex;align-items:center;gap:11px}.agent-person-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(135deg,#dfe8ff,#f5dfe8);color:#3c5cbb;font-weight:800}.agent-person-card h3,.agent-person-head h2{margin:0;font-size:16px}.agent-person-card p,.agent-person-head p{margin:2px 0 0;color:#8793a7;font-size:12px}.agent-tags{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 10px}.agent-tags span{padding:4px 8px;border-radius:6px;background:#f1f4f9;color:#708099;font-size:11px}.agent-reason{min-height:44px!important;color:#60718b!important;line-height:1.7}.agent-person-card .button{margin-top:7px}.agent-empty{padding:28px;text-align:center;color:#8c98aa}.agent-chat-panel{padding-bottom:17px}.agent-chat-panel .agent-panel-head{align-items:center}.agent-chat-panel .text-button{padding:0}.agent-context{margin:20px 0 15px;padding:13px 15px;border-radius:13px;background:#f2f5fb;display:flex;flex-direction:column;gap:4px}.agent-context span{font-size:11px;color:#8b98ac}.agent-context b{font-size:14px;color:#455975}.agent-message-list{max-height:390px;overflow:auto;padding:3px 3px 10px}.agent-bubble{max-width:78%;margin:10px 0;padding:11px 14px;border-radius:14px 14px 14px 4px;background:#f0f3f8;color:#43546f}.agent-bubble.mine{margin-left:auto;border-radius:14px 14px 4px 14px;background:#2459ec;color:#fff}.agent-bubble small{display:block;margin-bottom:4px;font-size:10px;opacity:.68}.agent-bubble p{margin:0;color:inherit;font-size:13px;line-height:1.7}.agent-compose{display:flex;align-items:end;gap:10px;padding-top:13px;border-top:1px solid #edf0f5}.agent-compose textarea{flex:1;min-height:48px;max-height:110px;padding:11px 13px;border:1px solid #dfe5ef;border-radius:12px;resize:vertical;font-size:13px;background:#fff}.agent-compose textarea:focus{border-color:#8daaf6;outline:3px solid #e8efff}.agent-compose .button{flex:0 0 auto}.muted{font-size:12px;color:#8c98aa}@media(max-width:720px){.agent-message-panel{padding:17px;border-radius:17px}.agent-timeline{grid-template-columns:1fr;gap:7px}.agent-person-grid{grid-template-columns:1fr}.agent-results-head{align-items:start}.agent-bubble{max-width:90%}.agent-compose{align-items:stretch;flex-direction:column}.agent-compose .button{width:100%}}`;
   document.head.appendChild(style);
 
+  function closeAccountMenu() {
+    const trigger = document.querySelector('[data-action="toggle-account-menu"]');
+    const panel = document.getElementById('account-menu-panel');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    if (panel) panel.hidden = true;
+  }
+  async function logout() {
+    const button = document.querySelector('[data-action="logout"]');
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      if (!response.ok) throw new Error('LOGOUT_FAILED');
+    } catch {
+      if (button) button.disabled = false;
+      toast('退出登录失败，请稍后重试。');
+      return;
+    }
+    localStorage.removeItem('z1space-prototype-v1');
+    authSession = null;
+    stayOnAuth = false;
+    state = fresh();
+    history.replaceState(null, '', location.pathname);
+    render();
+  }
+  document.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    const action = target?.dataset.action;
+    if (action === 'toggle-account-menu') {
+      const panel = document.getElementById('account-menu-panel');
+      const open = panel?.hidden;
+      closeAccountMenu();
+      if (panel && open) {
+        panel.hidden = false;
+        target.setAttribute('aria-expanded', 'true');
+      }
+      return;
+    }
+    if (action === 'logout') {
+      logout();
+      return;
+    }
+    if (!event.target.closest('.account-menu')) closeAccountMenu();
+  });
+
   if (state.step === 'auth') {
     renderAuth();
   } else {
+    render();
     loadAuthSession().then(auth => {
-      if (auth.authenticated && auth.user) {
-        const previousUserId = state.zhihuUser?.id;
+      if (!auth.authenticated || !auth.user) return;
+      if (state.zhihuUser?.id && state.zhihuUser.id !== auth.user.id) {
+        state = fresh();
         applyZhihuUser(auth.user);
-        if (previousUserId !== auth.user.id || state.profileSource === 'zhihu') render();
+        render();
+        return;
       }
+      const previousUserId = state.zhihuUser?.id;
+      applyZhihuUser(auth.user);
+      if (previousUserId !== auth.user.id || state.profileSource === 'zhihu') render();
     }).catch(() => {});
   }
-
-  getState().then(remote => { if (!remote || !remote.version) return; const localHasProgress = state.step !== 'auth' || state.skills?.length || state.impressions?.length || state.following?.length || Object.keys(state.chats || {}).length; const remoteHasProgress = remote.step !== 'auth' || remote.skills?.length || remote.impressions?.length || remote.following?.length || Object.keys(remote.chats || {}).length || remote.agentRuns?.length; if (remoteHasProgress || !localHasProgress) { state = { ...state, ...remote }; if (migrateZhihuProfile()) persist(); try { render(); } catch {} } else { saveState(state); } }).catch(() => {});
 
   /* F05 真人聊天：服务端持久化的邀请、会话和消息。与 Agent 对话保持独立。 */
   const humanDemoUser = new URLSearchParams(location.search).get('demoUser') || localStorage.getItem('z1space-demo-user') || 'a';
