@@ -448,7 +448,7 @@
     const person = run?.people?.[session.candidateId] || state.people?.[session.candidateId] || { name: '同路人', role: '知乎公开用户' };
     const turns = Array.isArray(session.turns) ? session.turns : [];
     const observation = session.observation;
-    const verdict = observation?.verdict === 'proceed' ? '值得继续认识' : observation?.verdict === 'review' ? '建议你再判断一下' : observation?.verdict === 'stop' ? '暂不建议继续' : '';
+    const verdict = observation?.verdict === 'proceed' ? '值得继续认识' : observation?.verdict === 'needs_user_review' ? '建议你再判断一下' : observation?.verdict === 'stop' ? '暂不建议继续' : '';
     return `<section class="agent-message-panel agent-a2a-panel"><div class="agent-panel-head"><button class="text-button" data-action="agent-chat-back">← 返回任务结果</button><span class="agent-live-dot">${esc(a2aStatusLabels[session.status] || 'Agent 交流')}</span></div><div class="agent-person-head"><div class="agent-person-avatar">${esc(String(person.name || '同').slice(0, 1))}</div><div><span class="eyebrow">A2A FIRST CHAT</span><h2>你的 Agent × ${esc(person.name || '同路人')} 的 Agent</h2><p>${esc(person.role || '知乎公开用户')} · 已进行 ${Number(session.currentRound || 0)} / 3 轮</p></div></div><div class="agent-context"><span>共同话题</span><b>${esc(session.topic || person.topic || '围绕 Skill 继续交流')}</b></div><div class="agent-a2a-turns">${turns.length ? turns.map(turn => `<div class="agent-a2a-turn ${turn.speaker === 'requester_agent' ? 'mine' : ''}"><small>${turn.speaker === 'requester_agent' ? '你的 Agent' : `${esc(person.name || '同路人')} 的 Agent`} · 第 ${Number(turn.round || 0)} 轮</small><p>${esc(turn.text || '')}</p></div>`).join('') : '<div class="agent-empty">双方 Agent 正在准备第一轮交流…</div>'}</div>${observation ? `<div class="agent-a2a-observation"><span class="eyebrow">OBSERVER 结论</span><h3>${esc(verdict)}</h3><p>${esc(observation.reason || '')}</p>${observation.suggestedOpening ? `<div class="agent-context"><span>建议开场</span><b>${esc(observation.suggestedOpening)}</b></div>` : ''}</div>` : ''}${session.failureCode ? `<div class="agent-empty">${esc(a2aErrorMessage(session.failureCode, '双方 Agent 暂时未能完成交流。'))}</div>` : ''}</section>`;
   }
   function agentMessagesPanel() {
@@ -474,7 +474,7 @@
           ? `本次没有找到合适的用户，但找到了 ${contentCount} 条相关内容。`
           : '本次没有找到符合条件的用户。可以调整 Skill 的目标或关键词后再试。';
     const stages = ['理解你的兴趣与任务', '匹配人物与共同话题', '整理推荐理由与交流线索'];
-    return `<section class="agent-message-panel"><div class="agent-panel-head"><div><span class="eyebrow">AGENT TASK</span><h2>${esc(run.skill?.name || '最近一次探索')}</h2></div><span class="agent-status-pill ${statusClass}">${statusLabel}</span></div><div class="agent-timeline">${stages.map((text, i) => `<div class="agent-stage ${i < (run.stage || 0) ? 'done' : i === (run.stage || 0) ? 'current' : ''}"><span>${i < (run.stage || 0) ? '✓' : i + 1}</span><p>${text}</p></div>`).join('')}</div>${run.timeline?.length ? `<div class="agent-summary">${esc(run.timeline[run.timeline.length - 1].text)}</div>` : ''}${candidates.length ? `<div class="agent-results-head"><div><span class="eyebrow">MATCHED PEOPLE</span><h3>这些人，值得先聊聊</h3></div><span class="muted">${candidates.length} 位候选人</span></div><div class="agent-person-grid">${candidates.map(p => `<article class="agent-person-card"><div class="agent-card-top"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h3>${esc(p.name)}</h3><p>${esc(p.role)}</p></div></div><div class="agent-tags">${p.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div><p class="agent-reason">${esc(p.reason)}</p><button class="button small wide" data-action="agent-chat" data-person="${p.id}" data-topic="${esc(p.topic || '')}">让双方 Agent 先聊聊</button></article>`).join('')}</div>` : `<div class="agent-empty">${emptyMessage}</div>`}</section>`;
+    return `<section class="agent-message-panel"><div class="agent-panel-head"><div><span class="eyebrow">AGENT TASK</span><h2>${esc(run.skill?.name || '最近一次探索')}</h2></div><span class="agent-status-pill ${statusClass}">${statusLabel}</span></div><div class="agent-timeline">${stages.map((text, i) => `<div class="agent-stage ${i < (run.stage || 0) ? 'done' : i === (run.stage || 0) ? 'current' : ''}"><span>${i < (run.stage || 0) ? '✓' : i + 1}</span><p>${text}</p></div>`).join('')}</div>${run.timeline?.length ? `<div class="agent-summary">${esc(run.timeline[run.timeline.length - 1].text)}</div>` : ''}${candidates.length ? `<div class="agent-results-head"><div><span class="eyebrow">MATCHED PEOPLE</span><h3>这些人，值得先聊聊</h3></div><span class="muted">${candidates.length} 位候选人</span></div><div class="agent-person-grid">${candidates.map(p => `<article class="agent-person-card"><div class="agent-card-top"><div class="agent-person-avatar">${esc(p.name.slice(0, 1))}</div><div><h3>${esc(p.name)}</h3><p>${esc(p.role)}</p></div></div><div class="agent-tags">${p.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div><p class="agent-reason">${esc(p.reason)}</p><button class="button small wide" data-action="agent-chat" data-person="${p.id}" data-run-id="${esc(run.id)}">让双方 Agent 先聊聊</button></article>`).join('')}</div>` : `<div class="agent-empty">${emptyMessage}</div>`}</section>`;
   }
   const originalMessagesView = messagesView;
   messagesView = function () { const html = originalMessagesView(); return html.replace('<div class="chat-layout">', `${agentMessagesPanel()}<div class="chat-layout">`); };
@@ -535,26 +535,11 @@
   }
   runSkill = runFromServer;
 
-  async function openAgentChat(personId, topic) {
+  async function openAgentChat(personId, runId) {
     try {
-      const discoverResponse = await fetch(`/api/discover/people?q=${encodeURIComponent(topic || personId)}&limit=10`, { headers });
-      const found = await discoverResponse.json().catch(() => ({}));
-      if (!discoverResponse.ok) {
-        toast(a2aErrorMessage(found.error, '推荐结果获取失败，请重新运行 Skill 后再试。'));
-        return;
-      }
-      const recommendation = (found.recommendations || []).find(item => item.targetId === personId);
-      if (!recommendation) {
-        toast(a2aErrorMessage('CANDIDATE_NOT_FOUND'));
-        return;
-      }
-      if (recommendation.a2aEligible) {
-        const a2aResponse = await fetch('/api/a2a-sessions', { method: 'POST', headers, body: JSON.stringify({ recommendationId: recommendation.id, idempotencyKey: crypto.randomUUID() }) });
-        const created = await a2aResponse.json().catch(() => ({}));
-        if (!a2aResponse.ok || !created?.id) {
-          toast(a2aErrorMessage(created.error));
-          return;
-        }
+      const a2aResponse = await fetch('/api/a2a-sessions', { method: 'POST', headers, body: JSON.stringify({ candidateId: personId, ...(runId ? { runId } : {}), idempotencyKey: crypto.randomUUID() }) });
+      const created = await a2aResponse.json().catch(() => ({}));
+      if (a2aResponse.ok && created?.id) {
         a2aSessionData = created;
         activeAgentPersonId = null;
         agentChatData = null;
@@ -578,6 +563,10 @@
         void poll();
         return;
       }
+      if (created.error !== 'A2A_NOT_ELIGIBLE') {
+        toast(a2aErrorMessage(created.error, '暂时无法启动 Agent 交流，请稍后重试。'));
+        return;
+      }
       const directResponse = await fetch(`/api/agent-chats/${personId}/messages`, { method: 'POST', headers, body: JSON.stringify({}) });
       const data = await directResponse.json().catch(() => ({}));
       if (!directResponse.ok || !data?.person || !Array.isArray(data.messages)) {
@@ -595,7 +584,7 @@
 
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-action="agent-chat"]');
-    if (b) openAgentChat(b.dataset.person, b.dataset.topic);
+    if (b) openAgentChat(b.dataset.person, b.dataset.runId);
     if (e.target.closest('[data-action="agent-chat-back"]')) { activeAgentPersonId = null; agentChatData = null; a2aSessionData = null; renderWorkspace(); }
   });
   document.addEventListener('submit', async e => {

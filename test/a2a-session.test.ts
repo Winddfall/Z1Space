@@ -131,3 +131,33 @@ test('does not execute an A2A Session twice', async () => {
   await assert.rejects(() => runA2ASession(completed, new FakeA2ASessionAdapter(), f05), /A2A_SESSION_STATE_INVALID/);
   assert.equal(f05.payloads.length, 1);
 });
+
+test('routes each turn to the addressed Agent with the previous transcript', async () => {
+  const requests: { agentId: string; agentRole: string; round: number; previousTurns: number }[] = [];
+  const adapter: A2ASessionAdapter = {
+    async generateTurn(request) {
+      requests.push({ agentId: request.agentId, agentRole: request.agentRole, round: request.round, previousTurns: request.previousTurns.length });
+      const evidence = request.evidenceLedger.entries.find(item => item.owner === request.agentRole);
+      return {
+        intent: request.round === 1 ? 'position' : request.round === 2 ? 'response' : 'summary',
+        text: `${request.agentId} responded to ${request.previousTurns.at(-1)?.speaker || 'opening'}`,
+        claims: evidence ? [{ text: evidence.excerpt, evidenceRefIds: [evidence.id] }] : [],
+        questions: request.round === 2 ? ['你如何看待这个取舍？'] : []
+      };
+    },
+    async observe(request) {
+      const evidenceRefs = ['requester', 'candidate'].map(owner => request.evidenceLedger.entries.find(item => item.owner === owner)?.id).filter((id): id is string => !!id);
+      return { verdict: 'stop', reason: '测试完成。', reasonCodes: ['NO_CLEAR_EXCHANGE_VALUE'], evidenceRefs };
+    }
+  };
+  const result = await runA2ASession(createA2ASession(recommendation, profile('requester'), profile('candidate')), adapter, new InMemoryF05InvitationDraftPort());
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(requests, [
+    { agentId: 'requester', agentRole: 'requester', round: 1, previousTurns: 0 },
+    { agentId: 'candidate', agentRole: 'candidate', round: 1, previousTurns: 1 },
+    { agentId: 'requester', agentRole: 'requester', round: 2, previousTurns: 2 },
+    { agentId: 'candidate', agentRole: 'candidate', round: 2, previousTurns: 3 },
+    { agentId: 'requester', agentRole: 'requester', round: 3, previousTurns: 4 },
+    { agentId: 'candidate', agentRole: 'candidate', round: 3, previousTurns: 5 }
+  ]);
+});

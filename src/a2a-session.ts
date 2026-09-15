@@ -86,7 +86,7 @@ export type A2ASession = Readonly<{
   completedAt?: string;
 }>;
 
-export type A2ATurnRequest = Readonly<{ round: 1 | 2 | 3; speaker: A2ATurn['speaker']; topic: string; evidenceLedger: A2AEvidenceLedger; previousTurns: readonly A2ATurn[] }>;
+export type A2ATurnRequest = Readonly<{ round: 1 | 2 | 3; speaker: A2ATurn['speaker']; agentId: string; agentRole: 'requester' | 'candidate'; topic: string; evidenceLedger: A2AEvidenceLedger; previousTurns: readonly A2ATurn[] }>;
 export type A2ATurnDraft = Readonly<{ intent: A2ATurnIntent; text: string; claims: readonly A2AClaim[]; questions: readonly string[] }>;
 export type A2AObserverRequest = Readonly<{ topic: string; evidenceLedger: A2AEvidenceLedger; turns: readonly A2ATurn[] }>;
 export type A2AObservationDraft = A2AObservation;
@@ -162,7 +162,7 @@ export async function runA2ASession(initial: A2ASession, adapter: A2ASessionAdap
     for (const round of [1, 2, 3] as const) {
       session = freezeSession({ ...session, status: 'running', currentRound: round }); publish(session);
       for (const speaker of ['requester_agent', 'candidate_agent'] as const) {
-        const draft = await adapter.generateTurn({ round, speaker, topic: session.topic, evidenceLedger: session.evidenceLedger, previousTurns: session.turns });
+        const draft = await adapter.generateTurn({ round, speaker, agentId: speaker === 'requester_agent' ? session.requesterId : session.candidateId, agentRole: speaker === 'requester_agent' ? 'requester' : 'candidate', topic: session.topic, evidenceLedger: session.evidenceLedger, previousTurns: session.turns });
         validateTurn(draft, session.evidenceLedger, speaker, round);
         const turn: A2ATurn = Object.freeze({ id: randomUUID(), round, speaker, intent: draft.intent, text: draft.text.trim(), claims: Object.freeze(draft.claims.map(claim => Object.freeze({ ...claim, evidenceRefIds: Object.freeze([...claim.evidenceRefIds]) }))), questions: Object.freeze([...draft.questions]), createdAt: new Date().toISOString() });
         session = freezeSession({ ...session, turns: [...session.turns, turn] }); publish(session);

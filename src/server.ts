@@ -16,8 +16,8 @@ import { redirect } from './http/response.ts';
 import { searchZhihu, zhihuAuthorId, zhihuContentId } from './zhihu/skill-search.ts';
 import { HumanChatError, HumanChatStore } from './human-chat/store.ts';
 import type { HumanUser } from './human-chat/types.ts';
-import { FakeA2ASessionAdapter, InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort } from './a2a-adapter.ts';
-import { createA2ASession, runA2ASession, type A2ASession, type RecommendationSnapshot } from './a2a-session.ts';
+import { InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort, TransportA2ASessionAdapter } from './a2a-adapter.ts';
+import { createA2ASession, runA2ASession, type A2AObservationDraft, type A2AObserverRequest, type A2ASession, type A2ATurnDraft, type A2ATurnRequest, type RecommendationSnapshot } from './a2a-session.ts';
 import { extractSkillDiscoveryIntent, skillDiscoveryQuery } from './skill-discovery-bridge.ts';
 
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
@@ -63,7 +63,6 @@ const contents: ContentCandidate[] = [
 ];
 
 const candidateProfileProvider = new InMemoryCandidateProfileProvider(Object.fromEntries(Object.values(people).map(person => [person.id, buildAgentContextSnapshot({ profileVersion: 1, profileConfirmedAt: '2026-09-14T00:00:00.000Z', impressions: [`${person.name}的公开身份与实践方向：${person.role}。`, `${person.name}的公开介绍：${person.bio}`, `${person.name}愿意围绕这个公开话题交流：${person.topic}`], profileSourceReferences: [[`candidate:${person.id}:role`], [`candidate:${person.id}:bio`], [`candidate:${person.id}:topic`]], profilePublicBoundaries: ['public', 'public', 'public'] }, person.id)])));
-const a2aAdapter = new FakeA2ASessionAdapter();
 const f05DraftPort = new InMemoryF05InvitationDraftPort();
 
 function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: [], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
@@ -192,6 +191,30 @@ function removeA2ASession(sessionId: string) { a2aSessions.delete(sessionId); fo
 function pruneA2ASessions(ownerId: string) { const terminal = (session: A2ASession) => session.status === 'completed' || session.status === 'failed'; while ([...a2aSessions.values()].filter(session => session.requesterId === ownerId).length >= maxA2ASessionsPerOwner) { const oldest = [...a2aSessions.values()].find(session => session.requesterId === ownerId && terminal(session)); if (!oldest) break; removeA2ASession(oldest.id); } while (a2aSessions.size >= maxA2ASessions) { const oldest = [...a2aSessions.values()].find(terminal); if (!oldest) break; removeA2ASession(oldest.id); } }
 function hasA2ACapacity(ownerId: string) { const sessions = [...a2aSessions.values()]; const active = sessions.filter(session => session.status === 'created' || session.status === 'running' || session.status === 'observing'); return active.length < maxConcurrentA2ASessions && active.filter(session => session.requesterId === ownerId).length < maxConcurrentA2ASessionsPerOwner && sessions.length < maxA2ASessions && sessions.filter(session => session.requesterId === ownerId).length < maxA2ASessionsPerOwner; }
 
+function persistedSkillForRun(state: AppState, runId: string | undefined) {
+  const records = Array.isArray(state.runs) ? state.runs.filter(value => objectValue(value)) : [];
+  const record = runId ? records.find(value => objectValue(value)?.id === runId) : records.at(-1);
+  const skillId = objectValue(record)?.skillId;
+  return typeof skillId === 'string' ? state.skills.find(skill => skill.id === skillId) : undefined;
+}
+function resolveCandidateRecommendation(ownerId: string, state: AppState, profile: AgentContextSnapshot, runId: string | undefined, candidateId: string) {
+  const run = runId ? runs.get(runId) : undefined;
+  if (run && run.ownerId !== ownerId) return { error: 'CANDIDATE_NOT_FOUND' as const };
+  if (run && advance(run).status !== 'completed') return { error: 'RUN_NOT_COMPLETED' as const };
+  const candidate = run?.people[candidateId] || peopleForState(state)[candidateId];
+  const belongsToRun = Boolean(run?.matches.includes(candidateId));
+  const belongsToState = Boolean(state.discoverIds?.includes(candidateId) || state.people?.[candidateId]);
+  if (!candidate || (!belongsToRun && !belongsToState)) return { error: 'CANDIDATE_NOT_FOUND' as const };
+  registerDynamicPerson(candidate);
+  const skill = run?.skill || persistedSkillForRun(state, runId);
+  const query = [skill ? skillDiscoveryQuery(skill) : '', candidate.topic || '', candidate.name].filter(Boolean).join(' ').slice(0, 360);
+  const result = recallPeople([candidate], query, profile, 1);
+  const recommendation = result.recommendations[0];
+  if (!recommendation) return { error: 'CANDIDATE_NOT_FOUND' as const };
+  const stored = saveRecommendationSnapshots(ownerId, query, profile.profileVersion, [recommendation])[0];
+  return stored ? { recommendation: recommendationSnapshots.get(recommendationKey(ownerId, stored.id))! } : { error: 'CANDIDATE_NOT_FOUND' as const };
+}
+
 const deepseekBaseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[], options: Record<string, unknown> = {}) {
@@ -203,6 +226,96 @@ async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; c
   return payload.choices?.[0]?.message?.content?.trim() || '';
 }
 function synthesisText(value: unknown, limit: number) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
+function a2aTurnIntent(round: A2ATurnRequest['round']): A2ATurnDraft['intent'] {
+  return round === 1 ? 'position' : round === 2 ? 'response' : 'summary';
+}
+function a2aFallbackTurn(request: A2ATurnRequest): A2ATurnDraft {
+  const owner = request.agentRole;
+  const evidence = request.evidenceLedger.entries.find(item => item.owner === owner);
+  const previous = request.previousTurns.at(-1);
+  const phase = request.round === 1 ? '陈述与议题相关的经历' : request.round === 2 ? '回应另一位 Agent 的观点' : '总结共识、分歧和下一步';
+  const previousContext = previous ? `上一位 Agent 提到：“${previous.text.slice(0, 100)}”` : '这是本次 A2A 交流的开场。';
+  const text = `${owner === 'requester' ? '发起方 Agent' : '候选方 Agent'}：${phase}。${evidence ? evidence.excerpt : '当前没有足够的公开证据支持事实陈述。'} ${previousContext}`.trim();
+  return {
+    intent: a2aTurnIntent(request.round),
+    text,
+    claims: evidence ? [{ text: evidence.excerpt, evidenceRefIds: [evidence.id] }] : [],
+    questions: request.round === 2 ? [`你如何看待「${request.topic}」中的具体取舍？`] : []
+  };
+}
+function a2aFallbackObservation(request: A2AObserverRequest): A2AObservationDraft {
+  const evidenceRefs = ['requester', 'candidate'].map(owner => request.evidenceLedger.entries.find(item => item.owner === owner)?.id).filter((id): id is string => !!id);
+  return {
+    verdict: 'proceed',
+    reason: '双方 Agent 都基于各自公开证据完成了双向交流，适合由用户决定是否继续认识。',
+    reasonCodes: ['MUTUAL_TOPIC_ALIGNMENT', 'COMPLEMENTARY_EXPERIENCE'],
+    evidenceRefs,
+    suggestedTopic: request.topic,
+    suggestedOpening: `想继续聊聊「${request.topic}」中双方提到的具体经历。`
+  };
+}
+function objectValue(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
+function parseA2ATurn(content: string, request: A2ATurnRequest): A2ATurnDraft | null {
+  try {
+    const parsed = objectValue(JSON.parse(content));
+    const text = typeof parsed?.text === 'string' ? parsed.text.trim() : '';
+    const allowed = new Set(request.evidenceLedger.entries.filter(item => item.owner === request.agentRole).map(item => item.id));
+    const claims = Array.isArray(parsed?.claims) ? parsed.claims.map(value => {
+      const claim = objectValue(value);
+      const claimText = typeof claim?.text === 'string' ? claim.text.trim() : '';
+      const refs = Array.isArray(claim?.evidenceRefIds) ? claim.evidenceRefIds.filter((id): id is string => typeof id === 'string' && allowed.has(id)) : [];
+      return claimText && refs.length ? { text: claimText, evidenceRefIds: refs } : null;
+    }).filter((claim): claim is { text: string; evidenceRefIds: string[] } => !!claim) : [];
+    const questions = Array.isArray(parsed?.questions) ? parsed.questions.filter((question): question is string => typeof question === 'string' && question.trim()).map(question => question.trim()).slice(0, 3) : [];
+    if (!text || !claims.length || (request.round === 2 && !questions.length)) return null;
+    return { intent: a2aTurnIntent(request.round), text, claims, questions: request.round === 2 ? questions : [] };
+  } catch { return null; }
+}
+async function generateModelA2ATurn(request: A2ATurnRequest): Promise<A2ATurnDraft | null> {
+  if (!process.env.DEEPSEEK_API_KEY) return null;
+  const evidence = request.evidenceLedger.entries.filter(item => item.owner === request.agentRole).map(item => ({ id: item.id, excerpt: item.excerpt, sourceReferences: item.sourceReferences }));
+  const previousTurns = request.previousTurns.slice(-8).map(turn => ({ speaker: turn.speaker, round: turn.round, text: turn.text }));
+  try {
+    const content = await deepseekChat([
+      { role: 'system', content: `你是 Z1Space 的${request.agentRole === 'requester' ? '发起方' : '候选方'}个人 Agent，正在通过 A2A 与另一位用户的 Agent 进行预交流。你只能基于自己的公开证据回答，不得冒充真人，不得补充证据之外的经历。必须回应对话历史，让交流产生增量。只输出 JSON：{"text":"...","claims":[{"text":"...","evidenceRefIds":["允许的证据ID"]}],"questions":["..."]}。第 ${request.round} 轮的目标是${request.round === 1 ? '陈述相关经历' : request.round === 2 ? '回应对方并提出一个可继续的问题' : '总结共识、分歧和信息增量'}。允许引用的证据 ID：${evidence.map(item => item.id).join(', ')}` },
+      { role: 'user', content: JSON.stringify({ agentId: request.agentId, topic: request.topic, ownEvidence: evidence, previousTurns }) }
+    ], { response_format: { type: 'json_object' }, max_tokens: 600 });
+    return content ? parseA2ATurn(content, request) : null;
+  } catch { return null; }
+}
+function parseA2AObservation(content: string, request: A2AObserverRequest): A2AObservationDraft | null {
+  try {
+    const parsed = objectValue(JSON.parse(content));
+    const verdict = parsed?.verdict;
+    if (verdict !== 'proceed' && verdict !== 'needs_user_review' && verdict !== 'stop') return null;
+    const reason = typeof parsed.reason === 'string' ? parsed.reason.trim() : '';
+    const reasonCodes = Array.isArray(parsed.reasonCodes) ? parsed.reasonCodes.filter((code): code is A2AObservationDraft['reasonCodes'][number] => typeof code === 'string' && ['MUTUAL_TOPIC_ALIGNMENT', 'COMPLEMENTARY_EXPERIENCE', 'EXPLORABLE_DIVERGENCE', 'ACTIONABLE_NEXT_QUESTION', 'ONE_SIDED_EVIDENCE', 'INSUFFICIENT_EVIDENCE', 'CONTRADICTORY_EVIDENCE', 'NO_CLEAR_EXCHANGE_VALUE'].includes(code)) : [];
+    const allowed = new Set(request.evidenceLedger.entries.map(item => item.id));
+    const evidenceRefs = Array.isArray(parsed.evidenceRefs) ? parsed.evidenceRefs.filter((id): id is string => typeof id === 'string' && allowed.has(id)) : [];
+    const cited = new Set(request.turns.flatMap(turn => turn.claims.flatMap(claim => claim.evidenceRefIds)));
+    const citedRefs = evidenceRefs.filter(id => cited.has(id));
+    const owners = new Set(citedRefs.map(id => request.evidenceLedger.entries.find(item => item.id === id)?.owner));
+    const suggestedTopic = typeof parsed.suggestedTopic === 'string' ? parsed.suggestedTopic.trim() : undefined;
+    const suggestedOpening = typeof parsed.suggestedOpening === 'string' ? parsed.suggestedOpening.trim() : undefined;
+    if (!reason || !reasonCodes.length || !citedRefs.length) return null;
+    if (verdict !== 'stop' && (reasonCodes.includes('INSUFFICIENT_EVIDENCE') || reasonCodes.includes('NO_CLEAR_EXCHANGE_VALUE') || !owners.has('requester') || !owners.has('candidate'))) return null;
+    return { verdict, reason, reasonCodes, evidenceRefs: citedRefs, ...(suggestedTopic ? { suggestedTopic } : {}), ...(suggestedOpening ? { suggestedOpening } : {}) };
+  } catch { return null; }
+}
+async function generateModelA2AObservation(request: A2AObserverRequest): Promise<A2AObservationDraft | null> {
+  if (!process.env.DEEPSEEK_API_KEY) return null;
+  try {
+    const content = await deepseekChat([
+      { role: 'system', content: '你是 Z1Space 的 A2A Observer。只根据双方 Agent 的公开证据和完整 transcript 判断是否值得把连接交回用户。只输出 JSON：{"verdict":"proceed|needs_user_review|stop","reason":"...","reasonCodes":["..."],"evidenceRefs":["已引用的证据ID"],"suggestedTopic":"...","suggestedOpening":"..."}。proceed 或 needs_user_review 必须引用双方已在 claims 中引用的证据。' },
+      { role: 'user', content: JSON.stringify({ topic: request.topic, evidenceLedger: request.evidenceLedger.entries, turns: request.turns }) }
+    ], { response_format: { type: 'json_object' }, max_tokens: 500 });
+    return content ? parseA2AObservation(content, request) : null;
+  } catch { return null; }
+}
+const a2aAdapter = new TransportA2ASessionAdapter({
+  async sendTurn(request) { return await generateModelA2ATurn(request) || a2aFallbackTurn(request); },
+  async observe(request) { return await generateModelA2AObservation(request) || a2aFallbackObservation(request); }
+});
 function profileAnswerText(value: string) { return synthesisText(value, 420).replace(/[。！？!?]+$/, ''); }
 function profileAnswerCore(value: string) {
   const original = profileAnswerText(value);
@@ -427,7 +540,52 @@ const server = createServer(async (req, res) => {
     const runMatch = url.pathname.match(/^\/api\/runs\/([^/]+)$/); if (runMatch && req.method === 'GET') { const run = runs.get(runMatch[1]); if (!run || run.ownerId !== sessionId(req, res)) return json(res, 404, { error: 'RUN_NOT_FOUND' }); return json(res, 200, publicRun(advance(run))); }
 
     const discoverMatch = url.pathname.match(/^\/api\/discover\/(people|content)$/); if (discoverMatch && req.method === 'GET') { const state = currentState(req, res); const ownerId = sessionId(req, res); const profile = snapshotFor(state, ownerId); const skillId = url.searchParams.get('skill_id') || undefined; const runId = url.searchParams.get('run_id') || undefined; const limit = Number(url.searchParams.get('limit') || 10); const event = trigger('explore.requested', ownerId, { target: discoverMatch[1], ...(skillId ? { skillId } : {}), ...(runId ? { runId } : {}), limit }); const plan = routeTrigger(event, { actorId: ownerId, profile, skills: state.skills }); if (!plan.accepted) return routeError(res, plan); if (plan.destination !== 'explore' || !profile) return json(res, 400, { error: 'INVALID_EVENT' }); const run = plan.runId ? runs.get(plan.runId) : undefined; if (plan.runId && !run) return json(res, 404, { error: 'RUN_NOT_FOUND' }); if (run && run.ownerId !== ownerId) return json(res, 404, { error: 'RUN_NOT_FOUND' }); if (run && advance(run).status !== 'completed') return json(res, 409, { error: 'RUN_NOT_COMPLETED' }); const skill = (plan.skillId ? state.skills.find(item => item.id === plan.skillId) : undefined) || run?.skill; const query = url.searchParams.get('q') || (skill ? skillDiscoveryQuery(skill) : discoveryQuery(profile)); const sourceIntent = run ? extractSkillDiscoveryIntent(run) : undefined; if (plan.target === 'people') { const allPeople = peopleForState(state, run); const pool: PeopleCandidate[] = Object.values(allPeople).map(({ id, name, role, bio, tags, topic }) => ({ id, name, role, bio, tags, topic })); const result = recallPeople(run ? pool.filter(candidate => run.matches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, ...(sourceIntent ? { sourceIntent } : {}), recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); } const allPosts = postsForState(state, run); const contentById = new Map<string, ContentCandidate>(contents.map(candidate => [candidate.id, candidate])); for (const post of Object.values(allPosts)) contentById.set(post.id, postCandidate(post)); const pool = [...contentById.values()]; const result = recallContent(run ? pool.filter(candidate => run.contentMatches.includes(candidate.id)) : pool, query, profile, plan.limit); return json(res, 200, { ...result, ...(sourceIntent ? { sourceIntent } : {}), recommendations: saveRecommendationSnapshots(ownerId, query, profile.profileVersion, result.recommendations) }); }
-    if (url.pathname === '/api/a2a-sessions' && req.method === 'POST') { const input = await body(req, 2_048) as { recommendationId?: unknown; idempotencyKey?: unknown }; const ownerId = sessionId(req, res); if (typeof input.recommendationId !== 'string' || !input.recommendationId || input.recommendationId.length > 128 || typeof input.idempotencyKey !== 'string' || !input.idempotencyKey || input.idempotencyKey.length > 128) return json(res, 400, { error: 'INVALID_A2A_REQUEST' }); const key = `${ownerId}:${input.recommendationId}:${input.idempotencyKey}`; const existingId = a2aIdempotency.get(key); if (existingId) { const existing = a2aSessions.get(existingId); if (existing) return json(res, 202, existing); a2aIdempotency.delete(key); } const recommendation = recommendationSnapshots.get(recommendationKey(ownerId, input.recommendationId)); if (!recommendation) return json(res, 404, { error: 'RECOMMENDATION_NOT_FOUND' }); if (recommendation.targetType !== 'person' || recommendation.verdict !== 'recommended' || !recommendation.a2aEligible) return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' }); pruneA2ASessions(ownerId); if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' }); const state = currentState(req, res); const profile = snapshotFor(state, ownerId); if (!profile?.confirmedAt || profile.profileVersion !== recommendation.profileVersion) return json(res, 409, { error: 'PROFILE_VERSION_CHANGED' }); const candidate = peopleForState(state)[recommendation.candidateId]; if (!candidate) return json(res, 404, { error: 'CANDIDATE_NOT_FOUND' }); registerDynamicPerson(candidate); const candidateProfile = await candidateProfileProvider.getPublicProfile(recommendation.candidateId); if (!candidateProfile) return json(res, 404, { error: 'CANDIDATE_PROFILE_NOT_FOUND' }); const racedId = a2aIdempotency.get(key); if (racedId) return json(res, 202, a2aSessions.get(racedId)); if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' }); const session = createA2ASession(recommendation, profile, candidateProfile); a2aSessions.set(session.id, session); a2aIdempotency.set(key, session.id); void runA2ASession(session, a2aAdapter, f05DraftPort, updated => a2aSessions.set(updated.id, updated)); return json(res, 202, session); }
+    if (url.pathname === '/api/a2a-sessions' && req.method === 'POST') {
+      const input = await body(req, 2_048) as { recommendationId?: unknown; runId?: unknown; candidateId?: unknown; idempotencyKey?: unknown };
+      const ownerId = sessionId(req, res);
+      const recommendationId = typeof input.recommendationId === 'string' && input.recommendationId ? input.recommendationId : undefined;
+      const runId = typeof input.runId === 'string' && input.runId ? input.runId : undefined;
+      const candidateId = typeof input.candidateId === 'string' && input.candidateId ? input.candidateId : undefined;
+      const idempotencyKey = typeof input.idempotencyKey === 'string' && input.idempotencyKey ? input.idempotencyKey : undefined;
+      if ((!recommendationId && !candidateId) || (recommendationId && (runId || candidateId)) || !idempotencyKey || idempotencyKey.length > 128 || recommendationId && recommendationId.length > 128 || runId && runId.length > 128 || candidateId && candidateId.length > 128) return json(res, 400, { error: 'INVALID_A2A_REQUEST' });
+      const identity = recommendationId || `${runId || 'state'}:${candidateId}`;
+      const key = `${ownerId}:${identity}:${idempotencyKey}`;
+      const existingId = a2aIdempotency.get(key);
+      if (existingId) {
+        const existing = a2aSessions.get(existingId);
+        if (existing) return json(res, 202, existing);
+        a2aIdempotency.delete(key);
+      }
+      const state = currentState(req, res);
+      const profile = snapshotFor(state, ownerId);
+      if (!profile) return json(res, 409, { error: 'PROFILE_NOT_CONFIRMED' });
+      let recommendation: RecommendationSnapshot | undefined;
+      if (recommendationId) {
+        recommendation = recommendationSnapshots.get(recommendationKey(ownerId, recommendationId));
+      } else {
+        const resolved = resolveCandidateRecommendation(ownerId, state, profile, runId, candidateId!);
+        if ('error' in resolved) return json(res, resolved.error === 'RUN_NOT_COMPLETED' ? 409 : 404, { error: resolved.error });
+        recommendation = resolved.recommendation;
+      }
+      if (!recommendation) return json(res, 404, { error: 'RECOMMENDATION_NOT_FOUND' });
+      if (recommendation.targetType !== 'person' || recommendation.verdict !== 'recommended' || !recommendation.a2aEligible) return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' });
+      pruneA2ASessions(ownerId);
+      if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' });
+      if (profile.profileVersion !== recommendation.profileVersion) return json(res, 409, { error: 'PROFILE_VERSION_CHANGED' });
+      const candidate = peopleForState(state)[recommendation.candidateId];
+      if (!candidate) return json(res, 404, { error: 'CANDIDATE_NOT_FOUND' });
+      registerDynamicPerson(candidate);
+      const candidateProfile = await candidateProfileProvider.getPublicProfile(recommendation.candidateId);
+      if (!candidateProfile) return json(res, 404, { error: 'CANDIDATE_PROFILE_NOT_FOUND' });
+      const racedId = a2aIdempotency.get(key);
+      if (racedId) return json(res, 202, a2aSessions.get(racedId));
+      if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' });
+      const session = createA2ASession(recommendation, profile, candidateProfile);
+      a2aSessions.set(session.id, session);
+      a2aIdempotency.set(key, session.id);
+      void runA2ASession(session, a2aAdapter, f05DraftPort, updated => a2aSessions.set(updated.id, updated));
+      return json(res, 202, session);
+    }
 
     const a2aMatch = url.pathname.match(/^\/api\/a2a-sessions\/([^/]+)$/); if (a2aMatch && req.method === 'GET') { const session = a2aSessions.get(a2aMatch[1]); if (!session || session.requesterId !== sessionId(req, res)) return json(res, 404, { error: 'A2A_SESSION_NOT_FOUND' }); return json(res, 200, session); }
     const chatMatch = url.pathname.match(/^\/api\/agent-chats\/([^/]+)\/messages$/); if (chatMatch && req.method === 'POST') {

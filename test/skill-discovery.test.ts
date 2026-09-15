@@ -139,6 +139,26 @@ process.stdout.write(JSON.stringify({Data:[
     assert.equal(a2a.turns.length, 6);
     assert.ok(a2a.observation);
 
+    const directA2aStarted = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ runId: initialRun.id, candidateId: personId, idempotencyKey: 'skill-discovery-direct-a2a' }) });
+    assert.equal(directA2aStarted.status, 202);
+    const directA2aInitial = await directA2aStarted.json() as { id: string };
+    let directA2a: any = directA2aInitial;
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/a2a-sessions/${directA2aInitial.id}`, { headers });
+      assert.equal(response.status, 200);
+      directA2a = await response.json();
+      if (directA2a.status === 'completed' || directA2a.status === 'failed') break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(directA2a.status, 'completed');
+    assert.deepEqual(directA2a.turns.map((turn: any) => turn.speaker), ['requester_agent', 'candidate_agent', 'requester_agent', 'candidate_agent', 'requester_agent', 'candidate_agent']);
+
+    const persistedStateA2aStarted = await fetch(`${baseUrl}/api/a2a-sessions`, { method: 'POST', headers, body: JSON.stringify({ candidateId: personId, idempotencyKey: 'skill-discovery-persisted-a2a' }) });
+    assert.equal(persistedStateA2aStarted.status, 202);
+    const persistedStateA2a = await persistedStateA2aStarted.json() as { id: string };
+    const persistedStateA2aResult = await (await fetch(`${baseUrl}/api/a2a-sessions/${persistedStateA2a.id}`, { headers })).json() as any;
+    assert.ok(['created', 'running', 'observing', 'completed'].includes(persistedStateA2aResult.status));
+
     const secondSaved = await fetch(`${baseUrl}/api/state`, { method: 'PUT', headers: baseHeaders, body: JSON.stringify({ ...profileState, name: '第二个用户' }) });
     assert.equal(secondSaved.status, 200);
     const secondHeaders = { ...baseHeaders, cookie: cookieFrom(secondSaved) };
