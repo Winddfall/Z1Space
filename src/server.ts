@@ -25,7 +25,7 @@ import { A2AStateStore, type A2AStoredState } from './a2a-store.ts';
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
 type AppState = { agentId?: string; version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; updatedAt?: number; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
-type Person = { id: string; agentId?: string; agentType?: 'user' | 'public_profile_proxy'; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string; source?: 'zhihu' | 'demo' };
+type Person = { id: string; agentId?: string; agentType?: 'user' | 'public_profile_proxy'; a2aEligible?: boolean; a2aReasons?: string[]; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string; source?: 'zhihu' | 'demo' };
 type Post = { id: string; person: string; kind: '发布' | '分享' | '赞同'; time: string; title: string; text: string; full: string; likes: number; author?: string; tags?: string[]; url?: string; source?: 'zhihu' | 'demo' };
 type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed' | 'failed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; contentMatches: string[]; people: Record<string, Person>; posts: Record<string, Post>; llmReady?: boolean; llmError?: string; searchError?: boolean };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
@@ -198,7 +198,21 @@ function discoveryQuery(profile: AgentContextSnapshot) {
 }
 function runFor(skill: Skill): Run { return { id: randomUUID(), skill, createdAt: Date.now(), status: 'running', stage: 0, timeline: [{ kind: 'agent', text: `收到，我开始执行「${skill.name}」。我会先结合你确认的公开用户画像，再在知乎寻找有依据的用户连接。` }], matches: [], contentMatches: [], people: {}, posts: {}, llmReady: false }; }
 function triggeredRun(skill: Skill, ownerId: string, profileSnapshot: AgentContextSnapshot): TriggeredRun { return { ...runFor(skill), ownerId, profileSnapshot }; }
-function publicRun(run: TriggeredRun) { const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run; const discoveryIntent = extractSkillDiscoveryIntent(run); return { ...value, people: run.people, profileVersion: run.profileSnapshot.profileVersion, ...(discoveryIntent ? { discoveryIntent } : {}) }; }
+function publicRun(run: TriggeredRun) {
+  const { ownerId: _ownerId, profileSnapshot: _profileSnapshot, ...value } = run;
+  const discoveryIntent = extractSkillDiscoveryIntent(run);
+  const peopleForClient = Object.fromEntries(Object.entries(run.people).map(([id, person]) => [id, { ...person, ...(person.a2aEligible === undefined ? {} : { a2aEligible: person.a2aEligible, a2aReasons: person.a2aReasons || [] }) }]));
+  return { ...value, people: peopleForClient, profileVersion: run.profileSnapshot.profileVersion, ...(discoveryIntent ? { discoveryIntent } : {}) };
+}
+function attachRunA2AEligibility(run: TriggeredRun) {
+  const query = skillDiscoveryQuery(run.skill);
+  for (const person of Object.values(run.people)) {
+    const candidate: PeopleCandidate = { id: person.id, name: person.name, role: person.role, bio: person.bio, tags: person.tags, topic: person.topic };
+    const recommendation = recallPeople([candidate], [query, person.topic, person.name].filter(Boolean).join(' ').slice(0, 360), run.profileSnapshot, 1).recommendations[0];
+    person.a2aEligible = Boolean(recommendation?.a2aEligible);
+    person.a2aReasons = [...(recommendation?.a2aReasons || ['MATCH_NOT_STRONG_ENOUGH'])];
+  }
+}
 function clearSeededDiscovery(state: AppState) {
   state.discoverIds = (state.discoverIds || []).filter(id => !['chen', 'xia', 'zhou'].includes(id));
   state.contentIds = (state.contentIds || []).filter(id => !['p1', 'p3', 'p5'].includes(id));
@@ -525,6 +539,7 @@ async function enrichRun(run: TriggeredRun, state: AppState) {
     }
   }
   run.llmReady = true;
+  attachRunA2AEligibility(run);
   mergeRunDiscoveryIntoState(state, run);
   await saveSessions();
 }
