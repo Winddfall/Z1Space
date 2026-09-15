@@ -209,8 +209,12 @@ function attachRunA2AEligibility(run: TriggeredRun) {
   for (const person of Object.values(run.people)) {
     const candidate: PeopleCandidate = { id: person.id, name: person.name, role: person.role, bio: person.bio, tags: person.tags, topic: person.topic };
     const recommendation = recallPeople([candidate], [query, person.topic, person.name].filter(Boolean).join(' ').slice(0, 360), run.profileSnapshot, 1).recommendations[0];
-    person.a2aEligible = Boolean(recommendation?.a2aEligible);
-    person.a2aReasons = [...(recommendation?.a2aReasons || ['MATCH_NOT_STRONG_ENOUGH'])];
+    // A2A availability is a transport capability, not the same thing as a
+    // recommendation quality verdict. A Skill result is already a person with
+    // public source material, so let the two bounded Agents talk; keep the
+    // recommendation metrics for ranking and Observer context.
+    person.a2aEligible = Boolean(recommendation && person.agentId && person.agentType);
+    person.a2aReasons = person.a2aEligible ? ['PERSON_AGENT_AVAILABLE', 'PUBLIC_SOURCE_BOUND'] : [...(recommendation?.a2aReasons || ['AGENT_ENDPOINT_UNAVAILABLE'])];
   }
 }
 function clearSeededDiscovery(state: AppState) {
@@ -728,13 +732,15 @@ const server = createServer(async (req, res) => {
         recommendation = resolved.recommendation;
       }
       if (!recommendation) return json(res, 404, { error: 'RECOMMENDATION_NOT_FOUND' });
-      if (recommendation.targetType !== 'person' || recommendation.verdict !== 'recommended' || !recommendation.a2aEligible) return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' });
+      if (recommendation.targetType !== 'person') return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' });
       pruneA2ASessions(ownerId);
       if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' });
       if (profile.profileVersion !== recommendation.profileVersion) return json(res, 409, { error: 'PROFILE_VERSION_CHANGED' });
       const candidate = peopleForState(state)[recommendation.candidateId];
       if (!candidate) return json(res, 404, { error: 'CANDIDATE_NOT_FOUND' });
       registerDynamicPerson(candidate);
+      if (candidate.agentId && candidate.agentType) recommendation = { ...recommendation, a2aEligible: true, a2aReasons: ['PERSON_AGENT_AVAILABLE', 'PUBLIC_SOURCE_BOUND'] };
+      if (!recommendation.a2aEligible) return json(res, 409, { error: 'A2A_NOT_ELIGIBLE' });
       const candidateProfile = await candidateProfileProvider.getPublicProfile(recommendation.candidateId);
       if (!candidateProfile) return json(res, 404, { error: 'CANDIDATE_PROFILE_NOT_FOUND' });
       const racedId = a2aIdempotency.get(key);
