@@ -1,6 +1,6 @@
 <div align="center">
 
-![Z1Space 项目图标](./public/assets/z1space-icon.png)
+<img src="./public/assets/z1space-icon.png" alt="Z1Space 项目图标" width="20%" />
 
 # Z1Space
 
