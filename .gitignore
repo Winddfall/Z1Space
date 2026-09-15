@@ -13,3 +13,4 @@ node_modules
 
 # 本地真人聊天演示数据
 .data/human-chats.json
+.data/a2a-state.json

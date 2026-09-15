@@ -220,3 +220,34 @@ Z1Space 的目标不是制造一个替你社交的数字人，而是建立一条
 从表达中发现彼此，让连接自然发生。
 
 </div>
+
+## A2A 最小真实链路（Render）
+
+当前 A2A 预交流不是同一个函数里轮流生成文本，而是：
+
+```text
+你的 Agent
+  -> POST /a2a/agents/:agentId（JSON-RPC SendMessage）
+  -> 候选 Agent Gateway
+  -> 返回 A2A Message
+  -> 任务记录 /a2a/tasks/:taskId 和 /api/a2a-sessions/:id
+```
+
+为了让一个 Render Web Service 就能跑通，双方 Agent 先作为同一服务中的两个逻辑 Agent，通过真实 HTTP 回环通信；这已经打通了可替换为跨服务公网地址的 A2A transport，但不会冒充未入驻知乎作者本人。未入驻作者会在 Agent Card 中标记为“公开资料代理”。
+
+Render 配置建议：
+
+- 添加一个 Render Postgres，并把 Internal Database URL 注入为 `DATABASE_URL`；
+- 设置 `DATABASE_SSL=true`（若你的数据库连接不要求 SSL 则设为 `false`）；
+- 设置 `A2A_PUBLIC_URL=https://你的服务名.onrender.com`；
+- 设置 `A2A_SHARED_SECRET` 为一段随机长字符串；
+- `A2A_BASE_URL` 可留空，单服务会自动走 `127.0.0.1:$PORT`，不会绕公网；拆分服务时再改成对方 Gateway 地址。
+
+可检查：
+
+```bash
+curl https://你的服务名.onrender.com/.well-known/agent-card.json
+curl https://你的服务名.onrender.com/api/health
+```
+
+浏览器点击“让双方 Agent 先聊聊”后，服务日志应出现 `[A2A HTTP] SendMessage ...`，这表示双方 turn 已经走 HTTP/JSON-RPC，而不是只在进程内调用函数。当前第一版保持同步单进程和 JSONB 文档存储，不引入 Redis、Worker、WebSocket；要扩展到多实例时再把任务表拆成 `a2a_tasks` / `a2a_messages` 并增加队列。

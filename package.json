@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.ts",
     "dev": "node --env-file-if-exists=.env --watch src/server.ts",
