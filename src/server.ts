@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { buildAgentContextSnapshot, type AgentContextSnapshot } from './agent-context.ts';
 import { recallContent, recallPeople, type ContentCandidate, type PeopleCandidate, type Recommendation } from './explore.ts';
 import { routeTrigger, type TriggerEvent } from './trigger-router.ts';
@@ -19,11 +19,13 @@ import type { HumanUser } from './human-chat/types.ts';
 import { InMemoryCandidateProfileProvider, InMemoryF05InvitationDraftPort, TransportA2ASessionAdapter } from './a2a-adapter.ts';
 import { createA2ASession, runA2ASession, type A2AObservationDraft, type A2AObserverRequest, type A2ASession, type A2ATurnDraft, type A2ATurnRequest, type RecommendationSnapshot } from './a2a-session.ts';
 import { extractSkillDiscoveryIntent, skillDiscoveryQuery } from './skill-discovery-bridge.ts';
+import { HttpA2AAgentTransport, a2aAgentCard } from './a2a-http.ts';
+import { A2AStateStore, type A2AStoredState } from './a2a-store.ts';
 
 type Skill = { id: string; name: string; kind?: string; goal?: string; keywords?: string; enabled?: boolean; profileDescription?: string; profileTitle?: string; [key: string]: unknown };
-type AppState = { version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; updatedAt?: number; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
+type AppState = { agentId?: string; version: number; step: string; name: string; impressions: string[]; skills: Skill[]; following: string[]; feedIds?: string[]; liked: string[]; saved: string[]; chats: Record<string, unknown>; runs: unknown[]; discoverIds: string[]; contentIds: string[]; lastView: string; updatedAt?: number; people?: Record<string, Person>; posts?: Record<string, Post>; agentChats?: Record<string, AgentMessage[]>; [key: string]: unknown };
 type AgentMessage = { from: 'me' | 'agent'; text: string; time: string };
-type Person = { id: string; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string; source?: 'zhihu' | 'demo' };
+type Person = { id: string; agentId?: string; agentType?: 'user' | 'public_profile_proxy'; name: string; role: string; bio: string; tags: string[]; reason: string; topic: string; greeting: string; url?: string; source?: 'zhihu' | 'demo' };
 type Post = { id: string; person: string; kind: '发布' | '分享' | '赞同'; time: string; title: string; text: string; full: string; likes: number; author?: string; tags?: string[]; url?: string; source?: 'zhihu' | 'demo' };
 type Run = { id: string; skill: Skill; createdAt: number; status: 'running' | 'completed' | 'failed'; stage: number; timeline: { text: string; kind: 'agent' | 'user' }[]; matches: string[]; contentMatches: string[]; people: Record<string, Person>; posts: Record<string, Post>; llmReady?: boolean; llmError?: string; searchError?: boolean };
 type TriggeredRun = Run & { ownerId: string; profileSnapshot: AgentContextSnapshot };
@@ -49,6 +51,14 @@ const maxA2ASessions = 500;
 const maxA2ASessionsPerOwner = 20;
 const maxConcurrentA2ASessions = 20;
 const maxConcurrentA2ASessionsPerOwner = 2;
+const port = Number(process.env.PORT || 3000);
+const a2aBaseUrl = (process.env.A2A_BASE_URL || `http://127.0.0.1:${port}`).replace(/\/$/, '');
+const a2aSharedSecret = process.env.A2A_SHARED_SECRET || '';
+const a2aStateStore = new A2AStateStore(join(dataDir, 'a2a-state.json'));
+type A2ADelivery = { messageId: string; taskId: string; agentId: string; draft: A2ATurnDraft; createdAt: string };
+const a2aDeliveries = new Map<string, A2ADelivery>();
+const a2aRunning = new Set<string>();
+const publicA2AAgents = new Map<string, Person>();
 
 const people: Record<string, Person> = {
   chen: { id: 'chen', name: '陈序', role: '独立开发者 · AI 产品实践', bio: '在做让复杂任务变简单的工具。写过代码，也踩过产品的坑。', tags: ['AI 产品', '独立开发', '交互'], reason: '他有 AI 产品落地经验，与你都在思考如何把复杂任务变简单。', topic: 'AI 产品应该先做聊天入口，还是任务流程？', greeting: '你好，我是陈序。看到你也在研究 AI 产品入口，我正好有一次改版经历可以分享。' },
@@ -65,7 +75,7 @@ const contents: ContentCandidate[] = [
 const candidateProfileProvider = new InMemoryCandidateProfileProvider(Object.fromEntries(Object.values(people).map(person => [person.id, buildAgentContextSnapshot({ profileVersion: 1, profileConfirmedAt: '2026-09-14T00:00:00.000Z', impressions: [`${person.name}的公开身份与实践方向：${person.role}。`, `${person.name}的公开介绍：${person.bio}`, `${person.name}愿意围绕这个公开话题交流：${person.topic}`], profileSourceReferences: [[`candidate:${person.id}:role`], [`candidate:${person.id}:bio`], [`candidate:${person.id}:topic`]], profilePublicBoundaries: ['public', 'public', 'public'] }, person.id)])));
 const f05DraftPort = new InMemoryF05InvitationDraftPort();
 
-function fresh(): AppState { return { version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: [], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
+function fresh(): AppState { return { agentId: `agent:${randomUUID()}`, version: 1, step: 'auth', name: '', impressions: [], skills: [], following: [], feedIds: [], liked: [], saved: [], chats: {}, runs: [], discoverIds: [], contentIds: [], lastView: 'discover', people: {}, posts: {}, agentChats: {} }; }
 function json(res: ServerResponse, status: number, body: unknown) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }); res.end(JSON.stringify(body)); }
 class RequestBodyTooLarge extends Error {}
 async function body(req: IncomingMessage, maxBytes = Infinity) { let raw = ''; for await (const chunk of req) { raw += chunk; if (Buffer.byteLength(raw) > maxBytes) throw new RequestBodyTooLarge(); } return raw ? JSON.parse(raw) : {}; }
@@ -95,6 +105,9 @@ function boundedProfileImpression(prefix: string, value: string, fallback: strin
   return text.length <= 420 ? text : `${text.slice(0, 419)}…`;
 }
 function registerDynamicPerson(person: Person) {
+  if (!person.agentId) person.agentId = `agent:public:${person.id}`;
+  if (!person.agentType) person.agentType = 'public_profile_proxy';
+  publicA2AAgents.set(person.agentId, { ...person });
   candidateProfileProvider.setProfile(person.id, buildAgentContextSnapshot({
     profileVersion: 1,
     profileConfirmedAt: new Date().toISOString(),
@@ -112,8 +125,28 @@ function hydrateStateEntities(state: AppState) {
     if (person && typeof person.id === 'string' && typeof person.name === 'string') registerDynamicPerson(person);
   }
 }
-async function loadSessions() { if (!existsSync(stateFile)) return; try { const saved = JSON.parse(await readFile(stateFile, 'utf8')); for (const [id, value] of Object.entries(saved)) { const state = value as AppState; sessions.set(id, state); hydrateStateEntities(state); } } catch { /* a corrupt demo file should not block a fresh session */ } }
-function currentState(req: IncomingMessage, res: ServerResponse) { const id = sessionId(req, res); if (!sessions.has(id)) sessions.set(id, fresh()); return sessions.get(id)!; }
+function registerConfirmedAgent(state: AppState) {
+  if (!state.agentId) return;
+  const profile = snapshotFor(state, state.agentId);
+  if (!profile?.confirmedAt) return;
+  const publicSections = profile.sections.filter(section => section.publicBoundary === 'public');
+  const person: Person = {
+    id: state.agentId,
+    agentId: state.agentId,
+    agentType: 'user',
+    name: state.name || 'Z1Space 用户',
+    role: 'Z1Space 用户 Agent',
+    bio: publicSections.map(section => section.impression).join(' ').slice(0, 420),
+    tags: [],
+    reason: '来自该用户本人确认的公开画像。',
+    topic: publicSections.at(-1)?.impression || '围绕公开画像继续交流。',
+    greeting: '你好，我是这个用户确认的 Agent。可以基于公开画像先交流。'
+  };
+  publicA2AAgents.set(state.agentId, person);
+  candidateProfileProvider.setProfile(state.agentId, profile);
+}
+async function loadSessions() { if (!existsSync(stateFile)) return; try { const saved = JSON.parse(await readFile(stateFile, 'utf8')); for (const [id, value] of Object.entries(saved)) { const state = value as AppState; sessions.set(id, state); hydrateStateEntities(state); registerConfirmedAgent(state); } } catch { /* a corrupt demo file should not block a fresh session */ } }
+function currentState(req: IncomingMessage, res: ServerResponse) { const id = sessionId(req, res); if (!sessions.has(id)) sessions.set(id, fresh()); const state = sessions.get(id)!; if (!state.agentId) state.agentId = `agent:${randomUUID()}`; return state; }
 function hasValidImpressions(state: AppState) { return Array.isArray(state.impressions) && state.impressions.length === 3 && state.impressions.every(value => typeof value === 'string' && value.trim().length >= 8); }
 function backfillProfileConfirmation(state: AppState) {
   if (state.profileConfirmedAt || !['skills', 'done'].includes(state.step) || !hasValidImpressions(state)) return false;
@@ -215,6 +248,36 @@ function resolveCandidateRecommendation(ownerId: string, state: AppState, profil
   return stored ? { recommendation: recommendationSnapshots.get(recommendationKey(ownerId, stored.id))! } : { error: 'CANDIDATE_NOT_FOUND' as const };
 }
 
+async function persistA2AState() {
+  const value: A2AStoredState = {
+    sessions: Object.fromEntries(a2aSessions),
+    idempotency: Object.fromEntries(a2aIdempotency),
+    deliveries: Object.fromEntries(a2aDeliveries)
+  };
+  await a2aStateStore.save(value);
+}
+async function loadA2AState() {
+  const saved = await a2aStateStore.load();
+  if (!saved) return;
+  for (const [id, value] of Object.entries(saved.sessions || {})) if (value && typeof value === 'object') a2aSessions.set(id, value as A2ASession);
+  for (const [key, value] of Object.entries(saved.idempotency || {})) if (typeof value === 'string') a2aIdempotency.set(key, value);
+  for (const [key, value] of Object.entries(saved.deliveries || {})) if (value && typeof value === 'object') a2aDeliveries.set(key, value as A2ADelivery);
+}
+function a2aAgentIdFor(session: A2ASession, speaker: 'requester_agent' | 'candidate_agent') { return speaker === 'requester_agent' ? (session.requesterAgentId || session.requesterId) : (session.candidateAgentId || session.candidateId); }
+function a2aAgentCardBaseUrl() { return process.env.A2A_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || a2aBaseUrl; }
+function validA2ASecret(req: IncomingMessage) {
+  if (!a2aSharedSecret) return true;
+  const value = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const expected = Buffer.from(a2aSharedSecret); const actual = Buffer.from(value);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+function a2aJsonRpcError(res: ServerResponse, id: unknown, status: number, code: number, message: string) { return json(res, status, { jsonrpc: '2.0', id: id ?? null, error: { code, message } }); }
+function a2aTaskView(session: A2ASession) {
+  const state = session.status === 'completed' ? 'completed' : session.status === 'failed' ? 'failed' : 'working';
+  return { id: session.id, contextId: session.id, status: { state, ...(session.failureCode ? { message: { role: 'ROLE_AGENT', parts: [{ text: session.failureCode }] } } : {}) }, history: session.turns.map(turn => ({ messageId: turn.id, role: 'ROLE_AGENT', parts: [{ text: turn.text }], metadata: { speaker: turn.speaker, round: turn.round } })), metadata: { requesterAgentId: a2aAgentIdFor(session, 'requester_agent'), candidateAgentId: a2aAgentIdFor(session, 'candidate_agent'), transport: 'http-jsonrpc' } };
+}
+function a2aTurnResponse(id: unknown, taskId: string, agentId: string, messageId: string, draft: A2ATurnDraft) { return { jsonrpc: '2.0', id: id ?? null, result: { message: { messageId, role: 'ROLE_AGENT', taskId, contextId: taskId, parts: [{ text: draft.text }], metadata: { agentId, z1spaceTurn: draft } } } }; }
+
 const deepseekBaseUrl = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
 async function deepseekChat(messages: { role: 'system' | 'user' | 'assistant'; content: string }[], options: Record<string, unknown> = {}) {
@@ -312,10 +375,24 @@ async function generateModelA2AObservation(request: A2AObserverRequest): Promise
     return content ? parseA2AObservation(content, request) : null;
   } catch { return null; }
 }
-const a2aAdapter = new TransportA2ASessionAdapter({
+const localA2AAdapter = new TransportA2ASessionAdapter({
   async sendTurn(request) { return await generateModelA2ATurn(request) || a2aFallbackTurn(request); },
   async observe(request) { return await generateModelA2AObservation(request) || a2aFallbackObservation(request); }
 });
+const a2aAdapter = new TransportA2ASessionAdapter(new HttpA2AAgentTransport({
+  baseUrl: a2aBaseUrl,
+  ...(a2aSharedSecret ? { sharedSecret: a2aSharedSecret } : {}),
+  observe: request => localA2AAdapter.observe(request)
+}));
+function startA2ASession(session: A2ASession) {
+  if (a2aRunning.has(session.id) || ['completed', 'failed'].includes(session.status)) return;
+  a2aRunning.add(session.id);
+  void runA2ASession(session, a2aAdapter, f05DraftPort, async updated => {
+    if (!a2aSessions.has(updated.id)) return;
+    a2aSessions.set(updated.id, updated);
+    await persistA2AState();
+  }).catch(error => console.error('A2A session runner failed:', error instanceof Error ? error.message : error)).finally(() => a2aRunning.delete(session.id));
+}
 function profileAnswerText(value: string) { return synthesisText(value, 420).replace(/[。！？!?]+$/, ''); }
 function profileAnswerCore(value: string) {
   const original = profileAnswerText(value);
@@ -476,11 +553,79 @@ function advance(run: Run) {
 }
 function staticPath(pathname: string) { if (pathname === '/') return join(root, 'Z1Space.html'); if (pathname === '/z1space-client.js') return join(root, 'public', 'z1space-client.js'); if (pathname === '/assets/z1space-icon.png') return join(root, 'public', 'assets', 'z1space-icon.png'); return null; }
 
+async function directA2AReply(agent: Person, prompt: string) {
+  const fallback = `${agent.name} 的 Agent：我会基于公开画像回应。${agent.bio.slice(0, 180)} 你想先从哪段具体经历聊起？`;
+  try {
+    return await deepseekChat([{ role: 'system', content: `你是 ${agent.name} 的用户 Agent，只能根据这份已公开画像回答，不要冒充真人，不要补充画像之外的事实，控制在180字内：${JSON.stringify(agent)}` }, { role: 'user', content: prompt }]) || fallback;
+  } catch { return fallback; }
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', 'http://localhost');
-    if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,PUT,POST,OPTIONS', 'access-control-allow-headers': 'Content-Type,X-Z1-Session' }); return res.end(); }
-    if (url.pathname === '/api/health') return json(res, 200, { ok: true, service: 'z1space-api' });
+    if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,PUT,POST,OPTIONS', 'access-control-allow-headers': 'Content-Type,Authorization,A2A-Version,X-Z1-Session' }); return res.end(); }
+    if (url.pathname === '/api/health') return json(res, 200, { ok: true, service: 'z1space-api', a2a: 'http-jsonrpc' });
+    if (url.pathname === '/.well-known/agent-card.json' && req.method === 'GET') return json(res, 200, a2aAgentCard(a2aAgentCardBaseUrl(), 'z1space-gateway', 'Z1Space A2A Gateway', '为已确认画像的用户 Agent 提供受控的 A2A 预交流入口。', 'gateway'));
+    if (url.pathname === '/api/agents/me/card' && req.method === 'GET') {
+      const state = currentState(req, res);
+      registerConfirmedAgent(state);
+      const profile = snapshotFor(state, state.agentId || sessionId(req, res));
+      if (!profile || !profile.confirmedAt) return json(res, 409, { error: 'PROFILE_NOT_CONFIRMED' });
+      return json(res, 200, a2aAgentCard(a2aAgentCardBaseUrl(), state.agentId!, state.name || 'Z1Space 用户 Agent', '只基于本人确认并标记为公开的画像内容进行 A2A 交流。', 'user'));
+    }
+    const cardMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/card$/);
+    if (cardMatch && req.method === 'GET') {
+      const agentId = decodeURIComponent(cardMatch[1]);
+      const publicAgent = publicA2AAgents.get(agentId);
+      if (publicAgent) return json(res, 200, a2aAgentCard(a2aAgentCardBaseUrl(), agentId, `${publicAgent.name} 的公开资料代理`, '仅基于知乎公开资料生成回复；这不是该用户本人已授权的独立 Agent。', 'public_profile_proxy'));
+      return json(res, 404, { error: 'AGENT_NOT_FOUND' });
+    }
+    const gatewayPath = url.pathname.match(/^\/a2a(?:\/agents\/([^/]+))?$/);
+    if (gatewayPath && req.method === 'POST') {
+      if (!validA2ASecret(req)) { res.setHeader('www-authenticate', 'Bearer'); return a2aJsonRpcError(res, null, 401, -32001, 'A2A_UNAUTHORIZED'); }
+      const input = await body(req, 16_384) as { id?: unknown; method?: unknown; params?: unknown };
+      const rpcId = input.id ?? null;
+      if (input.method !== 'SendMessage' && input.method !== 'message/send') return a2aJsonRpcError(res, rpcId, 400, -32601, 'A2A_METHOD_NOT_SUPPORTED');
+      const params = objectValue(input.params);
+      const message = objectValue(params?.message);
+      const metadata = objectValue(message?.metadata) || objectValue(params?.metadata);
+      const z1 = objectValue(metadata?.z1space);
+      const targetAgentId = decodeURIComponent(gatewayPath[1] || String(params?.targetAgentId || z1?.agentId || ''));
+      const taskId = String(message?.taskId || params?.taskId || '');
+      const session = a2aSessions.get(taskId);
+      if (!targetAgentId) return a2aJsonRpcError(res, rpcId, 404, -32004, 'A2A_AGENT_NOT_FOUND');
+      if (!session) {
+        const agent = publicA2AAgents.get(targetAgentId);
+        const prompt = Array.isArray(message?.parts) ? message.parts.map(part => objectValue(part)?.text).filter((text): text is string => typeof text === 'string').join(' ').trim() : '';
+        if (!agent || !prompt) return a2aJsonRpcError(res, rpcId, 404, -32004, 'A2A_AGENT_NOT_FOUND');
+        const messageId = String(message?.messageId || `a2a:${targetAgentId}:${randomUUID()}`);
+        const deliveryKey = `direct:${targetAgentId}:${messageId}`;
+        const cached = a2aDeliveries.get(deliveryKey);
+        const text = cached?.draft.text || await directA2AReply(agent, prompt);
+        const draft: A2ATurnDraft = cached?.draft || { intent: 'response', text, claims: [], questions: [] };
+        if (!cached) { a2aDeliveries.set(deliveryKey, { messageId, taskId: '', agentId: targetAgentId, draft, createdAt: new Date().toISOString() }); await persistA2AState(); }
+        return json(res, 200, { jsonrpc: '2.0', id: rpcId, result: { message: { messageId, role: 'ROLE_AGENT', parts: [{ text }], metadata: { agentId: targetAgentId, mode: agent.agentType || 'user' } } } });
+      }
+      const speaker = z1?.speaker === 'candidate_agent' ? 'candidate_agent' : z1?.speaker === 'requester_agent' ? 'requester_agent' : undefined;
+      const round = Number(z1?.round);
+      const expectedSpeaker = session.turns.length % 2 === 0 ? 'requester_agent' : 'candidate_agent';
+      if (!speaker || ![1, 2, 3].includes(round) || speaker !== expectedSpeaker || targetAgentId !== a2aAgentIdFor(session, speaker) || round !== Math.floor(session.turns.length / 2) + 1) return a2aJsonRpcError(res, rpcId, 409, -32009, 'A2A_TURN_OUT_OF_ORDER');
+      const messageId = String(message?.messageId || `z1space:${taskId}:${round}:${speaker}`);
+      const deliveryKey = `${targetAgentId}:${messageId}`;
+      const cached = a2aDeliveries.get(deliveryKey);
+      if (cached) return json(res, 200, a2aTurnResponse(rpcId, taskId, targetAgentId, messageId, cached.draft));
+      const draft = await localA2AAdapter.generateTurn({ sessionId: session.id, round: round as 1 | 2 | 3, speaker, agentId: targetAgentId, agentRole: speaker === 'requester_agent' ? 'requester' : 'candidate', topic: session.topic, evidenceLedger: session.evidenceLedger, previousTurns: session.turns });
+      a2aDeliveries.set(deliveryKey, { messageId, taskId, agentId: targetAgentId, draft, createdAt: new Date().toISOString() });
+      await persistA2AState();
+      console.info(`[A2A HTTP] SendMessage task=${taskId} target=${targetAgentId} round=${round}`);
+      return json(res, 200, a2aTurnResponse(rpcId, taskId, targetAgentId, messageId, draft));
+    }
+    const taskMatch = url.pathname.match(/^\/a2a\/tasks\/([^/]+)$/);
+    if (taskMatch && req.method === 'GET') {
+      if (!validA2ASecret(req)) return json(res, 401, { error: 'A2A_UNAUTHORIZED' });
+      const session = a2aSessions.get(decodeURIComponent(taskMatch[1]));
+      return session ? json(res, 200, a2aTaskView(session)) : json(res, 404, { error: 'A2A_TASK_NOT_FOUND' });
+    }
     if (url.pathname === '/api/auth/session' && req.method === 'GET') {
       const session = authSession(req);
       if (!readCookie(req, 'z1_session')) setSessionCookie(res, session.id, secureCookies(req));
@@ -529,7 +674,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, await synthesizeProfile(answers, profilePublicFacts(req)));
     }
     if (url.pathname === '/api/state' && req.method === 'GET') return json(res, 200, restoreStateForAuthenticatedUser(req, res));
-    if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); const saved = { ...fresh(), ...next, version: 1, updatedAt: Date.now() }; backfillProfileConfirmation(saved); sessions.set(id, saved); hydrateStateEntities(saved); await saveSessions(); return json(res, 200, saved); }
+    if (url.pathname === '/api/state' && req.method === 'PUT') { const next = await body(req) as AppState; const id = sessionId(req, res); const current = currentState(req, res); const saved = { ...fresh(), ...next, agentId: current.agentId || fresh().agentId, version: 1, updatedAt: Date.now() }; backfillProfileConfirmation(saved); sessions.set(id, saved); hydrateStateEntities(saved); registerConfirmedAgent(saved); await saveSessions(); return json(res, 200, saved); }
     if (url.pathname === '/api/runs' && req.method === 'POST') { const input = await body(req) as { skill?: Skill }; const state = currentState(req, res); const ownerId = sessionId(req, res);
       // Migrate sessions created by older clients: completing onboarding with
       // three valid impressions is the existing confirmation action.
@@ -581,13 +726,16 @@ const server = createServer(async (req, res) => {
       if (racedId) return json(res, 202, a2aSessions.get(racedId));
       if (!hasA2ACapacity(ownerId)) return json(res, 429, { error: 'A2A_CAPACITY_REACHED' });
       const session = createA2ASession(recommendation, profile, candidateProfile);
-      a2aSessions.set(session.id, session);
-      a2aIdempotency.set(key, session.id);
-      void runA2ASession(session, a2aAdapter, f05DraftPort, updated => a2aSessions.set(updated.id, updated));
-      return json(res, 202, session);
+      const withTransport = Object.freeze({ ...session, requesterAgentId: state.agentId || `agent:${ownerId}`, candidateAgentId: candidate.agentId || `agent:public:${candidate.id}`, candidateAgentType: candidate.agentType || 'public_profile_proxy', transport: 'http-jsonrpc' as const });
+      a2aSessions.set(withTransport.id, withTransport);
+      a2aIdempotency.set(key, withTransport.id);
+      await persistA2AState();
+      startA2ASession(withTransport);
+      return json(res, 202, withTransport);
     }
 
-    const a2aMatch = url.pathname.match(/^\/api\/a2a-sessions\/([^/]+)$/); if (a2aMatch && req.method === 'GET') { const session = a2aSessions.get(a2aMatch[1]); if (!session || session.requesterId !== sessionId(req, res)) return json(res, 404, { error: 'A2A_SESSION_NOT_FOUND' }); return json(res, 200, session); }
+    if (url.pathname === '/api/a2a-sessions' && req.method === 'GET') { const state = currentState(req, res); const ownerId = sessionId(req, res); const agentId = state.agentId; return json(res, 200, [...a2aSessions.values()].filter(session => session.requesterId === ownerId || a2aAgentIdFor(session, 'candidate_agent') === agentId)); }
+    const a2aMatch = url.pathname.match(/^\/api\/a2a-sessions\/([^/]+)$/); if (a2aMatch && req.method === 'GET') { const session = a2aSessions.get(a2aMatch[1]); const ownerId = sessionId(req, res); const state = currentState(req, res); if (!session || (session.requesterId !== ownerId && a2aAgentIdFor(session, 'candidate_agent') !== state.agentId)) return json(res, 404, { error: 'A2A_SESSION_NOT_FOUND' }); return json(res, 200, session); }
     const chatMatch = url.pathname.match(/^\/api\/agent-chats\/([^/]+)\/messages$/); if (chatMatch && req.method === 'POST') {
       const state = currentState(req, res);
       const ownerId = sessionId(req, res);
@@ -615,5 +763,8 @@ const server = createServer(async (req, res) => {
   } catch (error) { if (error instanceof RequestBodyTooLarge) return json(res, 413, { error: 'REQUEST_TOO_LARGE' }); if (error instanceof HumanChatError) return json(res, error.status, { error: error.code }); console.error(error); return json(res, 500, { error: 'INTERNAL_ERROR' }); }
 });
 await loadSessions();
-const port = Number(process.env.PORT || 3000);
-server.listen(port, () => console.log(`Z1Space running at http://localhost:${port}`));
+await loadA2AState();
+server.listen(port, async () => {
+  console.log(`Z1Space running at http://localhost:${port}`);
+  for (const session of a2aSessions.values()) if (['created', 'running', 'observing'].includes(session.status)) startA2ASession(session);
+});

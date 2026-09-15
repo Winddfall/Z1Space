@@ -81,12 +81,16 @@ export type A2ASession = Readonly<{
   observation?: A2AObservation;
   f05Handoff?: F05HandoffPayload;
   f05DraftId?: string;
+  requesterAgentId?: string;
+  candidateAgentId?: string;
+  candidateAgentType?: 'user' | 'public_profile_proxy';
+  transport?: 'http-jsonrpc';
   failureCode?: string;
   createdAt: string;
   completedAt?: string;
 }>;
 
-export type A2ATurnRequest = Readonly<{ round: 1 | 2 | 3; speaker: A2ATurn['speaker']; agentId: string; agentRole: 'requester' | 'candidate'; topic: string; evidenceLedger: A2AEvidenceLedger; previousTurns: readonly A2ATurn[] }>;
+export type A2ATurnRequest = Readonly<{ sessionId: string; round: 1 | 2 | 3; speaker: A2ATurn['speaker']; agentId: string; agentRole: 'requester' | 'candidate'; topic: string; evidenceLedger: A2AEvidenceLedger; previousTurns: readonly A2ATurn[] }>;
 export type A2ATurnDraft = Readonly<{ intent: A2ATurnIntent; text: string; claims: readonly A2AClaim[]; questions: readonly string[] }>;
 export type A2AObserverRequest = Readonly<{ topic: string; evidenceLedger: A2AEvidenceLedger; turns: readonly A2ATurn[] }>;
 export type A2AObservationDraft = A2AObservation;
@@ -154,32 +158,34 @@ export function createA2ASession(recommendation: RecommendationSnapshot, request
   return freezeSession({ id: randomUUID(), requesterId: recommendation.ownerId, candidateId: recommendation.candidateId, recommendationId: recommendation.recommendationId, topic: recommendation.query, status: 'created', currentRound: 0, requesterProfileVersion: requesterProfile.profileVersion, candidateProfileVersion: candidateProfile.profileVersion, evidenceLedger: buildA2AEvidenceLedger(recommendation, requesterProfile, candidateProfile), turns: [], createdAt: new Date().toISOString() });
 }
 
-export async function runA2ASession(initial: A2ASession, adapter: A2ASessionAdapter, f05: F05InvitationDraftPort, publish: (session: A2ASession) => void = () => {}): Promise<A2ASession> {
-  if (initial.status !== 'created' || initial.currentRound !== 0 || initial.turns.length) throw new Error('A2A_SESSION_STATE_INVALID');
+export async function runA2ASession(initial: A2ASession, adapter: A2ASessionAdapter, f05: F05InvitationDraftPort, publish: (session: A2ASession) => void | Promise<void> = () => {}): Promise<A2ASession> {
+  if (['completed', 'failed'].includes(initial.status) || initial.turns.length > 6 || initial.currentRound > 3) throw new Error('A2A_SESSION_STATE_INVALID');
   let session = initial;
+  const publishState = async () => { await publish(session); };
   try {
     if (!session.evidenceLedger.entries.some(item => item.owner === 'requester') || !session.evidenceLedger.entries.some(item => item.owner === 'candidate')) throw new Error('A2A_EVIDENCE_INSUFFICIENT');
     for (const round of [1, 2, 3] as const) {
-      session = freezeSession({ ...session, status: 'running', currentRound: round }); publish(session);
+      session = freezeSession({ ...session, status: 'running', currentRound: round }); await publishState();
       for (const speaker of ['requester_agent', 'candidate_agent'] as const) {
-        const draft = await adapter.generateTurn({ round, speaker, agentId: speaker === 'requester_agent' ? session.requesterId : session.candidateId, agentRole: speaker === 'requester_agent' ? 'requester' : 'candidate', topic: session.topic, evidenceLedger: session.evidenceLedger, previousTurns: session.turns });
+        if (session.turns.length >= (round - 1) * 2 + (speaker === 'candidate_agent' ? 2 : 1)) continue;
+        const draft = await adapter.generateTurn({ sessionId: session.id, round, speaker, agentId: speaker === 'requester_agent' ? (session.requesterAgentId || session.requesterId) : (session.candidateAgentId || session.candidateId), agentRole: speaker === 'requester_agent' ? 'requester' : 'candidate', topic: session.topic, evidenceLedger: session.evidenceLedger, previousTurns: session.turns });
         validateTurn(draft, session.evidenceLedger, speaker, round);
         const turn: A2ATurn = Object.freeze({ id: randomUUID(), round, speaker, intent: draft.intent, text: draft.text.trim(), claims: Object.freeze(draft.claims.map(claim => Object.freeze({ ...claim, evidenceRefIds: Object.freeze([...claim.evidenceRefIds]) }))), questions: Object.freeze([...draft.questions]), createdAt: new Date().toISOString() });
-        session = freezeSession({ ...session, turns: [...session.turns, turn] }); publish(session);
+        session = freezeSession({ ...session, turns: [...session.turns, turn] }); await publishState();
       }
     }
-    session = freezeSession({ ...session, status: 'observing' }); publish(session);
+    session = freezeSession({ ...session, status: 'observing' }); await publishState();
     const observation = await adapter.observe({ topic: session.topic, evidenceLedger: session.evidenceLedger, turns: session.turns });
     validateObservation(observation, session.evidenceLedger, session.turns);
     if (observation.verdict === 'stop') {
-      session = freezeSession({ ...session, status: 'completed', observation: Object.freeze(observation), completedAt: new Date().toISOString() }); publish(session); return session;
+      session = freezeSession({ ...session, status: 'completed', observation: Object.freeze(observation), completedAt: new Date().toISOString() }); await publishState(); return session;
     }
     const handoff: F05HandoffPayload = Object.freeze({ source: 'a2a_session', sourceSessionId: session.id, recommendationId: session.recommendationId, senderId: session.requesterId, recipientId: session.candidateId, topic: observation.suggestedTopic || session.topic, suggestedOpening: observation.suggestedOpening || `想继续聊聊「${session.topic}」。`, observerVerdict: observation.verdict, reason: observation.reason, evidenceRefIds: Object.freeze([...observation.evidenceRefs]) });
-    session = freezeSession({ ...session, observation: Object.freeze(observation), f05Handoff: handoff }); publish(session);
+    session = freezeSession({ ...session, observation: Object.freeze(observation), f05Handoff: handoff }); await publishState();
     const draft = await f05.createDraft(handoff);
     if (!draft || draft.status !== 'draft' || typeof draft.draftId !== 'string' || !draft.draftId) throw new Error('F05_DRAFT_INVALID');
-    session = freezeSession({ ...session, status: 'completed', f05DraftId: draft.draftId, completedAt: new Date().toISOString() }); publish(session); return session;
+    session = freezeSession({ ...session, status: 'completed', f05DraftId: draft.draftId, completedAt: new Date().toISOString() }); await publishState(); return session;
   } catch (error) {
-    session = freezeSession({ ...session, status: 'failed', failureCode: error instanceof Error ? error.message : 'A2A_FAILED', completedAt: new Date().toISOString() }); publish(session); return session;
+    session = freezeSession({ ...session, status: 'failed', failureCode: error instanceof Error ? error.message : 'A2A_FAILED', completedAt: new Date().toISOString() }); await publishState(); return session;
   }
 }
