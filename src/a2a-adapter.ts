@@ -28,6 +28,18 @@ export interface A2ASessionAdapter {
   observe(request: A2AObserverRequest): Promise<A2AObservationDraft>;
 }
 
+export interface A2AAgentTransport {
+  sendTurn(request: A2ATurnRequest): Promise<A2ATurnDraft>;
+  observe(request: A2AObserverRequest): Promise<A2AObservationDraft>;
+}
+
+export class TransportA2ASessionAdapter implements A2ASessionAdapter {
+  private readonly transport: A2AAgentTransport;
+  constructor(transport: A2AAgentTransport) { this.transport = transport; }
+  generateTurn(request: A2ATurnRequest) { return this.transport.sendTurn(request); }
+  observe(request: A2AObserverRequest) { return this.transport.observe(request); }
+}
+
 export interface F05InvitationDraftPort {
   createDraft(payload: F05HandoffPayload): Promise<Readonly<{ draftId: string; status: 'draft' }>>;
 }
